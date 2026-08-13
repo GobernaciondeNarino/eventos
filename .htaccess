@@ -1,22 +1,107 @@
 # =========================================================================
-# Red de seguridad.
+# Plataforma de Eventos TIC — Apache
 #
-# La raíz del proyecto NO debería ser la raíz web: lo correcto es apuntar el
-# dominio a public/. Pero en varios alojamientos compartidos el documento raíz
-# es fijo y el proyecto termina colgando de él. Si eso pasa, este archivo evita
-# que queden expuestos el archivo de configuración, la documentación interna,
-# los respaldos y el código de la aplicación.
+# Esta carpeta es la que se sube al servidor. Funciona igual como raíz de un
+# dominio que como subcarpeta (https://tic.narino.gov.co/cumbreAI/): no hay
+# que configurar la ruta en ningún lado, el índice la detecta solo.
 #
-# Si tu alojamiento sí permite apuntar el dominio a public/, hazlo: esto es el
-# segundo cinturón, no el primero.
+# En Plesk basta con subir el contenido a httpdocs/ o a httpdocs/cumbreAI/.
+# Ver docs/DESPLIEGUE-PLESK.md.
 # =========================================================================
 
-<IfModule mod_authz_core.c>
-    Require all denied
-</IfModule>
-<IfModule !mod_authz_core.c>
-    Order deny,allow
-    Deny from all
+Options -Indexes -MultiViews
+
+DirectoryIndex index.php
+
+# -------------------------------------------------------------------------
+# Todo pasa por index.php, salvo los archivos que existen de verdad
+# (los recursos de assets/, que Apache sirve directo y más rápido).
+# -------------------------------------------------------------------------
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+
+    # Forzar HTTPS. Se activa solo cuando ya hay certificado: en Plesk se
+    # instala desde «Certificados SSL/TLS» del dominio.
+    # RewriteCond %{HTTPS} !=on
+    # RewriteCond %{HTTP:X-Forwarded-Proto} !https
+    # RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+
+    RewriteCond %{REQUEST_FILENAME} -f [OR]
+    RewriteCond %{REQUEST_FILENAME} -d
+    RewriteRule ^ - [L]
+
+    RewriteRule ^ index.php [L]
 </IfModule>
 
-# public/ trae su propio .htaccess y vuelve a permitir el acceso.
+# Sin mod_rewrite la aplicación seguiría siendo alcanzable, pero fea:
+# /index.php/carnet. Mejor avisar que dejarlo a medias.
+<IfModule !mod_rewrite.c>
+    ErrorDocument 404 "Falta mod_rewrite. Actívalo en Plesk (Configuración de Apache del dominio) o contacta al proveedor."
+</IfModule>
+
+# -------------------------------------------------------------------------
+# Carpetas que nunca deben servirse.
+#
+# El código PHP además se protege solo: cada archivo empieza comprobando la
+# constante EVENTOS_TIC y termina si no está definida. Esto es la primera
+# barrera; esa comprobación es la segunda.
+# -------------------------------------------------------------------------
+RedirectMatch 404 (?i)^/?(.*/)?(app|config|almacen|docs|herramientas|pruebas)/
+
+# Archivos sueltos que tampoco deben verse
+<FilesMatch "(?i)(^\.|\.(sql|log|md|json|lock|ini|bak|old|swp|dist|yml|yaml)$|~$|^(composer|package)\.)">
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+    <IfModule !mod_authz_core.c>
+        Order deny,allow
+        Deny from all
+    </IfModule>
+</FilesMatch>
+
+# -------------------------------------------------------------------------
+# Cabeceras de seguridad.
+#
+# La aplicación también las manda desde PHP, porque en Plesk es habitual que
+# nginx sirva por delante y no aplique lo de Apache. Duplicarlas no molesta y
+# cubre el caso de los archivos estáticos, que no pasan por PHP.
+# -------------------------------------------------------------------------
+<IfModule mod_headers.c>
+    Header always set X-Content-Type-Options "nosniff"
+    Header always set X-Frame-Options "DENY"
+    Header always set Referrer-Policy "strict-origin-when-cross-origin"
+    Header always set Permissions-Policy "camera=(self), microphone=(), geolocation=(), payment=(), usb=()"
+    Header always unset X-Powered-By
+    Header always unset Server
+
+    # HSTS: descomentar cuando el dominio tenga certificado válido.
+    # Header always set Strict-Transport-Security "max-age=31536000; includeSubDomains"
+
+    <FilesMatch "\.(csv|vcf)$">
+        Header always set Cache-Control "no-store, private"
+    </FilesMatch>
+</IfModule>
+
+# -------------------------------------------------------------------------
+# Estáticos
+# -------------------------------------------------------------------------
+<IfModule mod_expires.c>
+    ExpiresActive On
+    ExpiresByType text/css "access plus 7 days"
+    ExpiresByType application/javascript "access plus 7 days"
+    ExpiresByType font/woff2 "access plus 1 year"
+    ExpiresByType image/svg+xml "access plus 30 days"
+    ExpiresByType text/html "access plus 0 seconds"
+</IfModule>
+
+<IfModule mod_deflate.c>
+    AddOutputFilterByType DEFLATE text/html text/css application/javascript image/svg+xml application/json
+</IfModule>
+
+# -------------------------------------------------------------------------
+# Límites de subida: el logo del evento y la foto del carnet.
+# -------------------------------------------------------------------------
+<IfModule mod_php.c>
+    php_value upload_max_filesize 4M
+    php_value post_max_size 6M
+</IfModule>

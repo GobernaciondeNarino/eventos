@@ -1,0 +1,532 @@
+<?php
+declare(strict_types=1);
+
+namespace App;
+
+defined('EVENTOS_TIC') || exit;
+
+use App\Nucleo\Bd;
+
+/**
+ * Definición del modelo de datos.
+ *
+ * Fuente única para el instalador, las migraciones y la documentación. Si una
+ * columna cambia, cambia aquí y todo lo demás la sigue.
+ */
+final class Esquema
+{
+    public const VERSION = '1.0.0';
+
+    /**
+     * @return array<string, array{nota: string, columnas: array<string,string>, llaves: array<int,string>}>
+     */
+    public static function tablas(): array
+    {
+        return [
+            'evento' => [
+                'nota' => 'Un registro por evento. La plataforma es multievento desde el día uno.',
+                'columnas' => [
+                    'id'            => 'INT UNSIGNED NOT NULL AUTO_INCREMENT',
+                    'nombre'        => 'VARCHAR(160) NOT NULL',
+                    'dependencia'   => "VARCHAR(160) NOT NULL DEFAULT ''",
+                    'sede'          => "VARCHAR(160) NOT NULL DEFAULT ''",
+                    'fecha_inicio'  => 'DATE NOT NULL',
+                    'jornadas'      => 'TINYINT UNSIGNED NOT NULL DEFAULT 1',
+                    'estado'        => "ENUM('borrador','abierto','en_curso','cerrado') NOT NULL DEFAULT 'borrador'",
+                    'activo'        => 'TINYINT(1) NOT NULL DEFAULT 0',
+                    'creado_en'     => 'DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP',
+                ],
+                'llaves' => ['PRIMARY KEY (id)', 'KEY idx_evento_estado (estado, activo)'],
+            ],
+
+            'evento_tema' => [
+                'nota' => 'Identidad visual: paleta, tipografía y logo. Es lo que se convierte en variables CSS.',
+                'columnas' => [
+                    'evento_id'      => 'INT UNSIGNED NOT NULL',
+                    'preset'         => "VARCHAR(40) NOT NULL DEFAULT 'tic-nocturno'",
+                    'tipografia'     => "VARCHAR(40) NOT NULL DEFAULT 'tecnologica'",
+                    'colores_json'   => 'TEXT NULL',
+                    'logo_archivo'   => "VARCHAR(120) NOT NULL DEFAULT ''",
+                    'logo_tipo'      => "VARCHAR(40) NOT NULL DEFAULT ''",
+                    'actualizado_en' => 'DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP',
+                ],
+                'llaves' => [
+                    'PRIMARY KEY (evento_id)',
+                    'CONSTRAINT fk_tema_evento FOREIGN KEY (evento_id) REFERENCES {evento} (id) ON DELETE CASCADE',
+                ],
+            ],
+
+            'evento_dia' => [
+                'nota' => 'Las jornadas. El código QR de acceso cuelga de aquí, no del evento: por eso cambia cada día.',
+                'columnas' => [
+                    'id'              => 'INT UNSIGNED NOT NULL AUTO_INCREMENT',
+                    'evento_id'       => 'INT UNSIGNED NOT NULL',
+                    'numero'          => 'TINYINT UNSIGNED NOT NULL',
+                    'fecha'           => 'DATE NOT NULL',
+                    'abre_a'          => "TIME NOT NULL DEFAULT '06:00:00'",
+                    'cierra_a'        => "TIME NOT NULL DEFAULT '22:00:00'",
+                    'token'           => 'CHAR(32) NOT NULL',
+                    'token_rotado_en' => 'DATETIME NULL',
+                    'creado_en'       => 'DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP',
+                ],
+                'llaves' => [
+                    'PRIMARY KEY (id)',
+                    'UNIQUE KEY uq_dia (evento_id, numero)',
+                    'UNIQUE KEY uq_dia_token (token)',
+                    'CONSTRAINT fk_dia_evento FOREIGN KEY (evento_id) REFERENCES {evento} (id) ON DELETE CASCADE',
+                ],
+            ],
+
+            'persona' => [
+                'nota' => 'Quien se preregistra. El documento va cifrado, con una huella aparte para detectar duplicados sin descifrar.',
+                'columnas' => [
+                    'id'                 => 'INT UNSIGNED NOT NULL AUTO_INCREMENT',
+                    'evento_id'          => 'INT UNSIGNED NOT NULL',
+                    'nombre'             => 'VARCHAR(160) NOT NULL',
+                    'correo'             => 'VARCHAR(190) NOT NULL',
+                    'tipo_documento'     => "ENUM('CC','CE','TI','PP') NOT NULL DEFAULT 'CC'",
+                    'documento_cifrado'  => 'VARBINARY(255) NOT NULL',
+                    'documento_huella'   => 'CHAR(64) NOT NULL',
+                    'telefono'           => "VARCHAR(32) NOT NULL DEFAULT ''",
+                    'entidad'            => "VARCHAR(160) NOT NULL DEFAULT ''",
+                    'departamento'       => "VARCHAR(80) NOT NULL DEFAULT ''",
+                    'municipio'          => "VARCHAR(80) NOT NULL DEFAULT ''",
+                    'rol'                => "ENUM('participante','visitante','expositor','organizador','prensa') NOT NULL DEFAULT 'participante'",
+                    'comparte_telefono'  => 'TINYINT(1) NOT NULL DEFAULT 1',
+                    'en_directorio'      => 'TINYINT(1) NOT NULL DEFAULT 0',
+                    'autorizo_datos_en'  => 'DATETIME NOT NULL',
+                    'creado_en'          => 'DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP',
+                ],
+                'llaves' => [
+                    'PRIMARY KEY (id)',
+                    'UNIQUE KEY uq_persona_correo (evento_id, correo)',
+                    'UNIQUE KEY uq_persona_doc (evento_id, documento_huella)',
+                    'KEY idx_persona_municipio (evento_id, municipio)',
+                    'KEY idx_persona_rol (evento_id, rol)',
+                    'CONSTRAINT fk_persona_evento FOREIGN KEY (evento_id) REFERENCES {evento} (id) ON DELETE CASCADE',
+                ],
+            ],
+
+            'persona_caracterizacion' => [
+                'nota' => 'Datos sensibles (Ley 1581, art. 5) en tabla aparte: las consultas del día a día no los tocan y su lectura se audita.',
+                'columnas' => [
+                    'persona_id'   => 'INT UNSIGNED NOT NULL',
+                    'genero'       => "VARCHAR(20) NOT NULL DEFAULT ''",
+                    'rango_edad'   => "VARCHAR(12) NOT NULL DEFAULT ''",
+                    'etnia'        => "VARCHAR(40) NOT NULL DEFAULT ''",
+                    'discapacidad' => "VARCHAR(40) NOT NULL DEFAULT ''",
+                ],
+                'llaves' => [
+                    'PRIMARY KEY (persona_id)',
+                    'CONSTRAINT fk_caract_persona FOREIGN KEY (persona_id) REFERENCES {persona} (id) ON DELETE CASCADE',
+                ],
+            ],
+
+            'credencial' => [
+                'nota' => 'El carnet. El token es lo único que viaja en el QR; nunca datos personales.',
+                'columnas' => [
+                    'id'           => 'INT UNSIGNED NOT NULL AUTO_INCREMENT',
+                    'persona_id'   => 'INT UNSIGNED NOT NULL',
+                    'codigo'       => 'VARCHAR(32) NOT NULL',
+                    'token'        => 'CHAR(32) NOT NULL',
+                    'foto_archivo' => "VARCHAR(120) NOT NULL DEFAULT ''",
+                    'emitida_en'   => 'DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP',
+                    'revocada_en'  => 'DATETIME NULL',
+                ],
+                'llaves' => [
+                    'PRIMARY KEY (id)',
+                    'UNIQUE KEY uq_credencial_token (token)',
+                    'UNIQUE KEY uq_credencial_codigo (codigo)',
+                    'UNIQUE KEY uq_credencial_persona (persona_id)',
+                    'CONSTRAINT fk_credencial_persona FOREIGN KEY (persona_id) REFERENCES {persona} (id) ON DELETE CASCADE',
+                ],
+            ],
+
+            'asistencia' => [
+                'nota' => 'Un ingreso por persona y jornada. La llave única es lo que impide contar dos veces a la misma persona.',
+                'columnas' => [
+                    'id'            => 'INT UNSIGNED NOT NULL AUTO_INCREMENT',
+                    'persona_id'    => 'INT UNSIGNED NOT NULL',
+                    'evento_dia_id' => 'INT UNSIGNED NOT NULL',
+                    'registrado_en' => 'DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP',
+                    'via'           => "ENUM('qr_dia','carnet_operador','manual') NOT NULL DEFAULT 'qr_dia'",
+                    'operador_id'   => 'INT UNSIGNED NULL',
+                    'ip'            => 'VARBINARY(16) NULL',
+                ],
+                'llaves' => [
+                    'PRIMARY KEY (id)',
+                    'UNIQUE KEY uq_asistencia (persona_id, evento_dia_id)',
+                    'KEY idx_asistencia_dia (evento_dia_id, registrado_en)',
+                    'CONSTRAINT fk_asis_persona FOREIGN KEY (persona_id) REFERENCES {persona} (id) ON DELETE CASCADE',
+                    'CONSTRAINT fk_asis_dia FOREIGN KEY (evento_dia_id) REFERENCES {evento_dia} (id) ON DELETE CASCADE',
+                ],
+            ],
+
+            'contacto' => [
+                'nota' => 'Intercambio de datos entre asistentes. Guarda quién escaneó a quién, para poder revertirlo si alguien lo pide.',
+                'columnas' => [
+                    'id'          => 'INT UNSIGNED NOT NULL AUTO_INCREMENT',
+                    'persona_id'  => 'INT UNSIGNED NOT NULL',
+                    'contacto_id' => 'INT UNSIGNED NOT NULL',
+                    'creado_en'   => 'DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP',
+                    'revocado_en' => 'DATETIME NULL',
+                ],
+                'llaves' => [
+                    'PRIMARY KEY (id)',
+                    'UNIQUE KEY uq_contacto (persona_id, contacto_id)',
+                    'CONSTRAINT fk_contacto_a FOREIGN KEY (persona_id) REFERENCES {persona} (id) ON DELETE CASCADE',
+                    'CONSTRAINT fk_contacto_b FOREIGN KEY (contacto_id) REFERENCES {persona} (id) ON DELETE CASCADE',
+                ],
+            ],
+
+            'propuesta' => [
+                'nota' => 'Lo que envía un expositor en el preregistro. Al aprobarse se convierte en charla.',
+                'columnas' => [
+                    'id'             => 'INT UNSIGNED NOT NULL AUTO_INCREMENT',
+                    'persona_id'     => 'INT UNSIGNED NOT NULL',
+                    'titulo'         => 'VARCHAR(200) NOT NULL',
+                    'categoria'      => 'VARCHAR(80) NOT NULL',
+                    'detalle'        => 'TEXT NOT NULL',
+                    'dia_preferido'  => 'TINYINT UNSIGNED NOT NULL DEFAULT 1',
+                    'duracion_min'   => 'SMALLINT UNSIGNED NOT NULL DEFAULT 40',
+                    'requerimientos' => "VARCHAR(255) NOT NULL DEFAULT ''",
+                    'estado'         => "ENUM('pendiente','observada','aprobada','rechazada') NOT NULL DEFAULT 'pendiente'",
+                    'observacion'    => 'TEXT NULL',
+                    'revisada_por'   => 'INT UNSIGNED NULL',
+                    'revisada_en'    => 'DATETIME NULL',
+                    'creado_en'      => 'DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP',
+                ],
+                'llaves' => [
+                    'PRIMARY KEY (id)',
+                    'KEY idx_propuesta_estado (estado)',
+                    'CONSTRAINT fk_propuesta_persona FOREIGN KEY (persona_id) REFERENCES {persona} (id) ON DELETE CASCADE',
+                ],
+            ],
+
+            'charla' => [
+                'nota' => 'La agenda pública: propuestas aprobadas con horario y salón asignados.',
+                'columnas' => [
+                    'id'            => 'INT UNSIGNED NOT NULL AUTO_INCREMENT',
+                    'propuesta_id'  => 'INT UNSIGNED NOT NULL',
+                    'evento_dia_id' => 'INT UNSIGNED NOT NULL',
+                    'hora_inicio'   => "TIME NOT NULL DEFAULT '09:00:00'",
+                    'salon'         => "VARCHAR(80) NOT NULL DEFAULT ''",
+                    'publicada'     => 'TINYINT(1) NOT NULL DEFAULT 1',
+                ],
+                'llaves' => [
+                    'PRIMARY KEY (id)',
+                    'UNIQUE KEY uq_charla_propuesta (propuesta_id)',
+                    'KEY idx_charla_dia (evento_dia_id, hora_inicio)',
+                    'CONSTRAINT fk_charla_propuesta FOREIGN KEY (propuesta_id) REFERENCES {propuesta} (id) ON DELETE CASCADE',
+                    'CONSTRAINT fk_charla_dia FOREIGN KEY (evento_dia_id) REFERENCES {evento_dia} (id) ON DELETE CASCADE',
+                ],
+            ],
+
+            'usuario' => [
+                'nota' => 'El equipo organizador. Contraseña con Argon2id y segundo factor obligatorio para el rol administrador.',
+                'columnas' => [
+                    'id'                => 'INT UNSIGNED NOT NULL AUTO_INCREMENT',
+                    'nombre'            => 'VARCHAR(160) NOT NULL',
+                    'correo'            => 'VARCHAR(190) NOT NULL',
+                    'clave_hash'        => 'VARCHAR(255) NOT NULL',
+                    'rol'               => "ENUM('administrador','operador','consulta') NOT NULL DEFAULT 'operador'",
+                    'puesto'            => "VARCHAR(80) NOT NULL DEFAULT ''",
+                    'totp_secreto'      => 'VARBINARY(255) NULL',
+                    'totp_confirmado'   => 'TINYINT(1) NOT NULL DEFAULT 0',
+                    'estado'            => "ENUM('activo','suspendido') NOT NULL DEFAULT 'activo'",
+                    'debe_cambiar'      => 'TINYINT(1) NOT NULL DEFAULT 0',
+                    'ultimo_acceso'     => 'DATETIME NULL',
+                    'creado_en'         => 'DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP',
+                ],
+                'llaves' => ['PRIMARY KEY (id)', 'UNIQUE KEY uq_usuario_correo (correo)'],
+            ],
+
+            'sesion' => [
+                'nota' => 'Sesiones en base de datos: se pueden cerrar a distancia y no quedan en archivos compartidos del servidor.',
+                'columnas' => [
+                    'id'           => 'CHAR(64) NOT NULL',
+                    'tipo'         => "ENUM('admin','asistente') NOT NULL",
+                    'sujeto_id'    => 'INT UNSIGNED NOT NULL',
+                    'datos'        => 'TEXT NULL',
+                    'ip'           => 'VARBINARY(16) NULL',
+                    'agente'       => "VARCHAR(255) NOT NULL DEFAULT ''",
+                    'ultima_senal' => 'DATETIME NOT NULL',
+                    'expira_en'    => 'DATETIME NOT NULL',
+                    'creado_en'    => 'DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP',
+                ],
+                'llaves' => [
+                    'PRIMARY KEY (id)',
+                    'KEY idx_sesion_expira (expira_en)',
+                    'KEY idx_sesion_sujeto (tipo, sujeto_id)',
+                ],
+            ],
+
+            'codigo_acceso' => [
+                'nota' => 'Códigos de un solo uso que se envían por correo al asistente. Se guarda el hash, no el código.',
+                'columnas' => [
+                    'id'         => 'INT UNSIGNED NOT NULL AUTO_INCREMENT',
+                    'persona_id' => 'INT UNSIGNED NOT NULL',
+                    'codigo_hash'=> 'CHAR(64) NOT NULL',
+                    'destino'    => "VARCHAR(255) NOT NULL DEFAULT ''",
+                    'usado_en'   => 'DATETIME NULL',
+                    'expira_en'  => 'DATETIME NOT NULL',
+                    'creado_en'  => 'DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP',
+                ],
+                'llaves' => [
+                    'PRIMARY KEY (id)',
+                    'KEY idx_codigo_persona (persona_id, expira_en)',
+                    'CONSTRAINT fk_codigo_persona FOREIGN KEY (persona_id) REFERENCES {persona} (id) ON DELETE CASCADE',
+                ],
+            ],
+
+            'intento' => [
+                'nota' => 'Contador de intentos fallidos para el límite de fuerza bruta. La clave se guarda como HMAC, no en claro.',
+                'columnas' => [
+                    'id'        => 'BIGINT UNSIGNED NOT NULL AUTO_INCREMENT',
+                    'huella'    => 'CHAR(64) NOT NULL',
+                    'accion'    => 'VARCHAR(40) NOT NULL',
+                    'ip'        => 'VARBINARY(16) NULL',
+                    'creado_en' => 'DATETIME NOT NULL',
+                ],
+                'llaves' => [
+                    'PRIMARY KEY (id)',
+                    'KEY idx_intento_huella (huella, creado_en)',
+                ],
+            ],
+
+            'bitacora' => [
+                'nota' => 'Auditoría. Quién hizo qué, cuándo y desde dónde. Solo se inserta: no se actualiza ni se borra.',
+                'columnas' => [
+                    'id'         => 'BIGINT UNSIGNED NOT NULL AUTO_INCREMENT',
+                    'usuario_id' => 'INT UNSIGNED NULL',
+                    'accion'     => 'VARCHAR(80) NOT NULL',
+                    'entidad'    => "VARCHAR(60) NOT NULL DEFAULT ''",
+                    'entidad_id' => 'INT UNSIGNED NULL',
+                    'detalle'    => 'TEXT NULL',
+                    'ip'         => 'VARBINARY(16) NULL',
+                    'creado_en'  => 'DATETIME NOT NULL',
+                ],
+                'llaves' => [
+                    'PRIMARY KEY (id)',
+                    'KEY idx_bitacora_fecha (creado_en)',
+                    'KEY idx_bitacora_accion (accion)',
+                ],
+            ],
+
+            'migracion' => [
+                'nota' => 'Qué versión del esquema está aplicada. Sin esto el instalador no sabría si actualizar o instalar.',
+                'columnas' => [
+                    'version'     => 'VARCHAR(20) NOT NULL',
+                    'aplicada_en' => 'DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP',
+                    'descripcion' => "VARCHAR(190) NOT NULL DEFAULT ''",
+                ],
+                'llaves' => ['PRIMARY KEY (version)'],
+            ],
+        ];
+    }
+
+    /** Nombres en el orden de creación (las llaves foráneas dependen de él). */
+    public static function nombres(): array
+    {
+        return array_keys(self::tablas());
+    }
+
+    /** CREATE TABLE de una tabla, con el prefijo ya resuelto. */
+    public static function crear(string $nombre, string $prefijo, bool $siNoExiste = true): string
+    {
+        $tabla = self::tablas()[$nombre] ?? null;
+        if ($tabla === null) {
+            throw new \InvalidArgumentException("Tabla desconocida: $nombre");
+        }
+
+        $partes = [];
+        foreach ($tabla['columnas'] as $columna => $tipo) {
+            $partes[] = "  `$columna` $tipo";
+        }
+        foreach ($tabla['llaves'] as $llave) {
+            $partes[] = '  ' . self::aplicarPrefijo($llave, $prefijo);
+        }
+
+        return "-- {$tabla['nota']}\n"
+            . 'CREATE TABLE ' . ($siNoExiste ? 'IF NOT EXISTS ' : '')
+            . "`$prefijo$nombre` (\n"
+            . implode(",\n", $partes) . "\n"
+            . ') ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;';
+    }
+
+    private static function aplicarPrefijo(string $texto, string $prefijo): string
+    {
+        return preg_replace_callback(
+            '/\{([a-z_]+)\}/',
+            static fn(array $m): string => '`' . $prefijo . $m[1] . '`',
+            $texto
+        ) ?? $texto;
+    }
+
+    /**
+     * Guion completo, para previsualizar antes de ejecutar.
+     * $modo: 'limpio' | 'actualizar' | 'anexar'
+     */
+    public static function guion(string $prefijo, string $modo, array $existentes = []): string
+    {
+        $lineas = [
+            '-- Plataforma de Eventos TIC · esquema ' . self::VERSION,
+            '-- Modo: ' . $modo,
+            'SET NAMES utf8mb4;',
+            'SET FOREIGN_KEY_CHECKS = 0;',
+            '',
+        ];
+
+        if ($modo === 'limpio') {
+            $lineas[] = '-- Se eliminan las tablas existentes con este prefijo.';
+            foreach (array_reverse(self::nombres()) as $nombre) {
+                $lineas[] = "DROP TABLE IF EXISTS `$prefijo$nombre`;";
+            }
+            $lineas[] = '';
+        }
+
+        foreach (self::nombres() as $nombre) {
+            $existe = in_array($nombre, $existentes, true);
+            if ($modo === 'anexar' && $existe) {
+                $lineas[] = "-- `$prefijo$nombre` ya existe: se deja intacta.";
+                $lineas[] = '';
+                continue;
+            }
+            $lineas[] = self::crear($nombre, $prefijo, $modo !== 'limpio');
+            $lineas[] = '';
+        }
+
+        if ($modo === 'actualizar') {
+            $lineas[] = '-- Columnas que falten en tablas ya existentes se agregan una a una,';
+            $lineas[] = '-- consultando antes information_schema (compatible con MySQL y MariaDB).';
+            $lineas[] = '';
+        }
+
+        $lineas[] = 'SET FOREIGN_KEY_CHECKS = 1;';
+        $lineas[] = "INSERT INTO `{$prefijo}migracion` (version, descripcion)";
+        $lineas[] = "  VALUES ('" . self::VERSION . "', 'Instalación " . $modo . "')";
+        $lineas[] = '  ON DUPLICATE KEY UPDATE aplicada_en = CURRENT_TIMESTAMP;';
+
+        return implode("\n", $lineas);
+    }
+
+    /**
+     * Aplica el esquema de verdad.
+     *
+     * Devuelve la lista de acciones ejecutadas, que el instalador muestra al
+     * terminar. Cada sentencia va suelta y no en un bloque: si una falla, se
+     * sabe exactamente cuál.
+     */
+    public static function aplicar(string $modo, array $existentes = []): array
+    {
+        $prefijo = Bd::prefijo();
+        $hechas = [];
+
+        Bd::ejecutarBruto('SET FOREIGN_KEY_CHECKS = 0');
+
+        try {
+            if ($modo === 'limpio') {
+                foreach (array_reverse(self::nombres()) as $nombre) {
+                    Bd::ejecutarBruto("DROP TABLE IF EXISTS `$prefijo$nombre`");
+                }
+                $hechas[] = ['tabla' => '(todas)', 'accion' => 'eliminadas', 'detalle' => count($existentes) . ' tablas previas'];
+            }
+
+            foreach (self::tablas() as $nombre => $definicion) {
+                $existe = in_array($nombre, $existentes, true) && $modo !== 'limpio';
+
+                if (!$existe) {
+                    Bd::ejecutarBruto(self::crear($nombre, $prefijo, true));
+                    $hechas[] = ['tabla' => $prefijo . $nombre, 'accion' => 'creada',
+                                 'detalle' => count($definicion['columnas']) . ' columnas'];
+                    continue;
+                }
+
+                if ($modo === 'anexar') {
+                    $hechas[] = ['tabla' => $prefijo . $nombre, 'accion' => 'intacta', 'detalle' => 'ya existía'];
+                    continue;
+                }
+
+                // Modo actualizar: se agregan solo las columnas que falten.
+                $agregadas = self::agregarColumnasFaltantes($nombre, $definicion, $prefijo);
+                $hechas[] = [
+                    'tabla'   => $prefijo . $nombre,
+                    'accion'  => $agregadas ? 'actualizada' : 'sin cambios',
+                    'detalle' => $agregadas ? implode(', ', $agregadas) : 'ya estaba al día',
+                ];
+            }
+        } finally {
+            Bd::ejecutarBruto('SET FOREIGN_KEY_CHECKS = 1');
+        }
+
+        Bd::ejecutar(
+            'INSERT INTO {migracion} (version, descripcion) VALUES (?, ?)
+             ON DUPLICATE KEY UPDATE aplicada_en = CURRENT_TIMESTAMP',
+            [self::VERSION, 'Instalación ' . $modo]
+        );
+
+        return $hechas;
+    }
+
+    /**
+     * ALTER TABLE ... ADD COLUMN para lo que falte.
+     *
+     * Se consulta information_schema en vez de usar «ADD COLUMN IF NOT EXISTS»
+     * porque esa sintaxis es de MariaDB y en MySQL 8 falla. La plataforma tiene
+     * que instalarse igual en los dos.
+     */
+    private static function agregarColumnasFaltantes(string $nombre, array $definicion, string $prefijo): array
+    {
+        $actuales = array_column(
+            Bd::filasDirecto(
+                'SELECT COLUMN_NAME FROM information_schema.COLUMNS
+                  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?',
+                [$prefijo . $nombre]
+            ),
+            'COLUMN_NAME'
+        );
+
+        $agregadas = [];
+        $previa = null;
+        foreach ($definicion['columnas'] as $columna => $tipo) {
+            if (!in_array($columna, $actuales, true)) {
+                $donde = $previa ? " AFTER `$previa`" : ' FIRST';
+                Bd::ejecutarBruto("ALTER TABLE `$prefijo$nombre` ADD COLUMN `$columna` $tipo$donde");
+                $agregadas[] = $columna;
+            }
+            $previa = $columna;
+        }
+        return $agregadas;
+    }
+
+    /** Qué tablas del esquema ya están en la base. */
+    public static function existentes(): array
+    {
+        $prefijo = Bd::prefijo();
+        $encontradas = array_column(
+            Bd::filasDirecto(
+                'SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE()'
+            ),
+            'TABLE_NAME'
+        );
+
+        $nuestras = [];
+        foreach (self::nombres() as $nombre) {
+            if (in_array($prefijo . $nombre, $encontradas, true)) {
+                $nuestras[] = $nombre;
+            }
+        }
+        return $nuestras;
+    }
+
+    /** Versión aplicada, o null si no hay tabla de migraciones. */
+    public static function versionInstalada(): ?string
+    {
+        try {
+            $v = Bd::valor('SELECT version FROM {migracion} ORDER BY aplicada_en DESC LIMIT 1');
+            return $v === null ? null : (string) $v;
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+}

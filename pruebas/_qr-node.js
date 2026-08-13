@@ -1,4 +1,4 @@
-const QR = require('../public/assets/js/qr.js');
+const QR = require('./qr-referencia.js');
 const cases = JSON.parse(require('fs').readFileSync(process.argv[2], 'utf8'));
 const out = cases.map(c => {
   try {

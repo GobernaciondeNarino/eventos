@@ -3,243 +3,210 @@
 Registro, acreditación y control de asistencia para los eventos de la **Secretaría TIC,
 Innovación y Gobierno Abierto** de la Gobernación de Nariño.
 
-Una persona se preregistra una sola vez, recibe un carnet digital con su código QR, y
-cada mañana del evento marca su ingreso escaneando el código de la jornada. Ese mismo
-carnet le sirve para intercambiar datos de contacto con otros asistentes y para que un
-organizador registre su entrada si el código de la puerta no le funciona.
+Una persona se preregistra una sola vez, recibe un carnet digital con su código QR, y cada
+mañana del evento marca su ingreso escaneando el código de la jornada con la cámara de su
+teléfono. Ese mismo carnet le sirve para intercambiar datos de contacto con otros asistentes
+y para que un organizador registre su entrada si el código de la puerta no le funciona.
+
+**Despliegue actual:** https://tic.narino.gov.co/cumbreAI/
 
 ---
 
-## Estado actual: fase 1 de 2
+## Estado
 
-El desarrollo se pidió en dos tiempos, y este repositorio está al final del primero.
+Las dos fases están terminadas. La plataforma funciona de extremo a extremo: se instala, se
+registra gente, se sella asistencia, se aprueban exposiciones y se exportan reportes.
 
-| | Fase 1 — Interfaz | Fase 2 — Funcionalidad |
-|---|---|---|
-| **Estado** | Terminada, lista para validar | Sin iniciar |
-| **Qué hay** | Las 16 pantallas navegables, el sistema de diseño, el generador de QR, el asistente de instalación y la documentación | — |
-| **Qué falta** | — | PHP, base de datos, autenticación, envío de correo, lectura por cámara |
-
-Lo que ya funciona de verdad, no simulado:
-
-- **Los códigos QR son reales y escaneables.** Generador propio, validado matriz a matriz
-  contra la librería de referencia en 2 368 casos (versiones 1 a 20, cuatro niveles de
-  corrección) y decodificado con un lector independiente. Apunta el celular a la pantalla
-  del carnet y lee.
-- **La personalización por evento funciona.** Cambiar paleta, tipografía o logo repinta la
-  plataforma entera al instante y persiste entre pantallas.
-- **El SQL del instalador es real.** Se genera desde la definición del esquema, en los tres
-  modos, y su sintaxis está validada.
-
-Lo que está simulado y avisa que lo está: el inicio de sesión, la lectura por cámara, la
-conexión a la base de datos y el envío de correo.
-
-> **No publiques esto en internet todavía.** Las pantallas de administración son HTML
-> estático sin autenticación: cualquiera que sepa la URL entra. Para validar, sírvelo en
-> local o en la red interna. El detalle está en [`docs/SEGURIDAD.md`](docs/SEGURIDAD.md).
+| | Qué hay |
+|---|---|
+| **Interfaz** | 20 pantallas, diseño configurable por evento, responsive |
+| **Backend** | PHP 8.1+ con PDO y MySQL/MariaDB, sin framework ni Composer |
+| **Instalación** | Asistente de seis pasos que crea, actualiza o anexa las tablas |
+| **Autenticación** | Asistentes por código de correo; equipo con contraseña y segundo factor |
+| **Códigos QR** | Generador propio, verificado contra una librería de referencia |
+| **Pruebas** | 98 comprobaciones de extremo a extremo sobre un servidor real |
 
 ---
 
-## Cómo verlo
+## Instalación
 
-No hay que compilar nada. Solo se necesita un servidor de archivos estáticos, porque el
-navegador bloquea algunas cosas si se abre el HTML con doble clic.
+**En Plesk:** sigue [`docs/DESPLIEGUE-PLESK.md`](docs/DESPLIEGUE-PLESK.md). Resumen: crear la
+base de datos con cotejamiento `utf8mb4_unicode_ci`, subir la carpeta a
+`httpdocs/cumbreAI/`, dar permiso de escritura a `config/` y `almacen/`, activar HTTPS y
+abrir la URL. El asistente hace el resto.
+
+**En local, para probar:**
 
 ```bash
 git clone https://github.com/GobernaciondeNarino/eventos.git
 cd eventos
-
-# Con Node
-npx http-server public -p 8899 -s
-
-# o con Python
-python3 -m http.server 8899 --directory public
-
-# o con PHP
-php -S localhost:8899 -t public
+php -S localhost:8000
 ```
 
-Abre <http://localhost:8899>.
+Abre <http://localhost:8000>. Sin configuración, cualquier dirección lleva al asistente.
 
-### Por dónde empezar
+### Funciona en cualquier subcarpeta
 
-| Recorrido | Ruta |
-|---|---|
-| El del asistente, de principio a fin | `/index.html` → preregistro → carnet → check-in |
-| El carnet, que es el corazón del sistema | `/carnet.html` — tócalo para voltearlo y ver el QR |
-| Personalizar el evento (requisito 4) | `/admin/identidad.html` — cambia la paleta y mira el resto |
-| El asistente de instalación (requisito 9) | `/install/index.html` — los seis pasos |
-| El día del evento, desde la puerta | `/admin/escaner.html` y `/admin/qr-dias.html` |
+No hay que configurar la ruta en ningún lado: `index.php` la deduce de `SCRIPT_NAME` y todas
+las URLs —enlaces, formularios, cookies y el contenido de los QR— se construyen a partir de
+ahí.
 
-Para verlo como se verá de verdad, abre el check-in y el carnet en un celular: la interfaz
-está pensada primero para esa pantalla.
+| Dónde se sube | Ruta base | URL de ejemplo |
+|---|---|---|
+| `httpdocs/cumbreAI/` | `/cumbreAI` | `/cumbreAI/carnet` |
+| `httpdocs/` | *(raíz)* | `/carnet` |
+| `httpdocs/eventos/2026/` | `/eventos/2026` | `/eventos/2026/carnet` |
 
----
-
-## Las pantallas
-
-**Participante** — `public/`
-
-| Pantalla | Qué hace |
-|---|---|
-| `index.html` | Entrada por correo, con las jornadas del evento |
-| `preregistro.html` | Nombre y documento obligatorios; caracterización y perfil de expositor opcionales |
-| `carnet.html` | La credencial, con anverso, reverso y QR. Cambia de color según el rol |
-| `checkin.html` | Escaneo del código del día desde el celular |
-| `contactos.html` | Contactos intercambiados y control de qué se comparte |
-| `agenda.html` | Programación por jornada, con búsqueda y detalle |
-
-**Administración** — `public/admin/`
-
-| Pantalla | Qué hace |
-|---|---|
-| `login.html` | Acceso con segundo factor |
-| `index.html` | Panel: indicadores, ingresos por jornada, cobertura territorial, pendientes |
-| `escaner.html` | El operador lee el carnet y sella el ingreso |
-| `registros.html` | Tabla de asistentes con filtros y exportación |
-| `qr-dias.html` | Un código por jornada, imprimible y regenerable |
-| `expositores.html` | Aprobar, observar o rechazar propuestas |
-| `organizadores.html` | Equipo, roles y permisos |
-| `eventos.html` | Varios eventos a la vez |
-| `identidad.html` | Colores, tipografía y logo del evento |
-
-**Instalación** — `public/install/index.html`: seis pasos, del estilo de los instaladores
-clásicos.
+Mover la plataforma de sitio es copiar la carpeta y actualizar `url_base` en
+`config/config.php`. Los QR ya impresos llevan la URL absoluta dentro: si cambia el dominio,
+hay que regenerarlos.
 
 ---
 
-## Los cinco requisitos, uno por uno
+## Cómo se usa
 
-**Carnet virtual para participantes, organizadores y expositores.** Cinco roles
-—participante, visitante, expositor, organizador y prensa—, cada uno con su color y su
-rótulo en la credencial, para distinguirlos de lejos. El carnet se voltea, se imprime a
-tamaño CR80 y lleva un QR real. En `carnet.html` hay un selector para ver cómo queda cada
-rol sin tener que volver a registrarse.
+### El asistente
 
-**Configurable por evento: colores, tipografía y logo.** Todo lo personalizable vive como
-variable CSS en `public/assets/css/tokens.css`. El panel de identidad las reescribe en vivo
-y guarda el resultado; la fase 2 solo tiene que emitir las mismas variables desde la base de
-datos. Hay cinco paletas base y cuatro combinaciones tipográficas, y además se puede ajustar
-color por color. La pantalla comprueba el contraste contra la norma WCAG 2.1 AA y avisa
-cuando el texto quedaría ilegible bajo el sol de la puerta del recinto.
+1. **Preregistro** — nombre y documento; el resto es opcional. Si va a exponer, adjunta su
+   propuesta en el mismo formulario.
+2. **Carnet** — se emite al instante y llega por correo. No hace falta imprimirlo.
+3. **Cada mañana** — apunta la cámara al pliego de la entrada. El código abre la plataforma,
+   sella la hora y muestra su historial.
+4. **Contactos** — al escanear el carnet de otra persona intercambian nombre, entidad, correo
+   y —si lo autorizaron— teléfono. Exportable en `.vcf`.
 
-**Registro de ingreso cada día, con un QR por jornada.** El código pertenece a la jornada,
-no al evento: cambia cada día y el anterior deja de servir. Se imprime desde
-`admin/qr-dias.html` y se puede regenerar si el pliego se filtra —una foto en redes basta—.
-El esquema guarda hora de apertura y cierre por jornada, de modo que un escaneo fuera de esa
-ventana se rechaza.
+### El equipo organizador
 
-**El QR del carnet sirve para dos cosas.** Que otro asistente lo escanee e intercambien
-contacto —nombre, entidad, correo y, si la persona quiere, teléfono—, y que un organizador
-lo lea para registrar el ingreso del día cuando el código de la puerta falla.
+| Pantalla | Para qué |
+|---|---|
+| Panel | Indicadores, ingresos por jornada, cobertura territorial, pendientes |
+| Escanear carnet | Acreditar a alguien cuyo código de puerta falló; incluye búsqueda manual |
+| Registros | Listado con filtros y exportación a CSV |
+| QR por día | Un código por jornada, imprimible a página completa y regenerable |
+| Expositores | Aprobar, observar o rechazar propuestas; al aprobar se publica en la agenda |
+| Organizadores | Equipo, roles y estado del segundo factor |
+| Eventos | Varios eventos a la vez; el activo es el que ven los asistentes |
+| Identidad | Colores, tipografía y logo, con revisión de contraste |
 
-**Asistente de instalación tipo WordPress.** Comprueba el servidor, pide los datos de
-conexión, detecta qué tablas ya existen y propone un plan con tres modos: **limpio** (crea
-desde cero), **actualizar** (conserva los datos y aplica solo los cambios pendientes) y
-**anexar** (crea únicamente lo que falte). Muestra el SQL exacto antes de ejecutarlo, marca
-en rojo lo destructivo y termina recordando que hay que borrar la carpeta de instalación.
+**Roles:** `administrador` ⊃ `operador` ⊃ `consulta`. El operador sella ingresos pero no
+exporta datos sensibles ni toca la configuración.
+
+---
+
+## Los códigos QR
+
+Son el centro del sistema y funcionan **desde cualquier aplicación de cámara**, sin instalar
+nada.
+
+**Código de la jornada** (`/d/{token}`) — el pliego pegado en la entrada. Cambia cada día,
+tiene ventana horaria y se puede regenerar si se filtra. Al escanearlo: si hay sesión,
+registra el ingreso; si no, lleva al acceso y vuelve para completarlo.
+
+**Código del carnet** (`/c/{token}`) — la credencial de una persona. Quien lo escanea decide
+qué pasa:
+
+| Quién escanea | Qué obtiene |
+|---|---|
+| Nadie identificado | Se le pregunta quién es y se le lleva al acceso que corresponde. **No se revela de quién es el carnet** |
+| Otro asistente | Intercambio de contacto, recíproco |
+| Operador o administrador | Ficha de acreditación con documento, y el botón de sellar |
+
+El QR **no contiene datos personales**: solo un identificador opaco de 128 bits. Quien
+fotografíe un carnet ajeno no obtiene nada por sí mismo.
+
+El generador está escrito desde cero, sin dependencias, en PHP y en JavaScript. Ambas
+versiones se comparan matriz a matriz entre sí, y la de JavaScript está verificada contra la
+librería `qrcode` de Python en 2 368 casos: versiones 1 a 20, los cuatro niveles de
+corrección y las ocho máscaras.
+
+---
+
+## Personalización por evento
+
+Todo lo configurable vive como variable CSS. El panel de identidad las reescribe y el
+servidor las imprime en el `<head>`: las hojas de estilo no conocen ningún color.
+
+- **5 paletas base** y ajuste color por color (10 variables).
+- **4 combinaciones tipográficas**, con las familias autoalojadas.
+- **Logo propio** en SVG, PNG, JPG o WEBP.
+- **Revisión de contraste** contra WCAG 2.1 AA, en vivo. Un evento puede verse muy bien en la
+  pantalla del diseñador y ser ilegible bajo el sol en la puerta del recinto.
+
+Cada evento tiene su propia identidad: cambiar de evento activo cambia toda la plataforma.
 
 ---
 
 ## Cómo está organizado
 
 ```
-eventos/
-├── public/                      ← lo único que debe publicarse
-│   ├── index.html … agenda.html     pantallas del participante
-│   ├── admin/                       backoffice
-│   ├── install/                     asistente de instalación
-│   ├── assets/
-│   │   ├── css/     tokens · base · componentes · impresión
-│   │   ├── js/
-│   │   │   ├── tema.js          identidad configurable (requisito 4)
-│   │   │   ├── qr.js            generador de QR, sin dependencias
-│   │   │   ├── esquema.js       modelo de datos, fuente única
-│   │   │   ├── layout.js        armazón: barras y navegación
-│   │   │   ├── ui.js            avisos, modales, formato, validación
-│   │   │   ├── instalador.js    los seis pasos
-│   │   │   ├── datos-demo.js    datos de muestra (desaparece en fase 2)
-│   │   │   └── paginas/         un archivo por pantalla
-│   │   ├── fonts/               tipografías autoalojadas
-│   │   └── img/
-│   └── .htaccess                cabeceras de seguridad
-├── docs/
-│   ├── SEGURIDAD.md             revisión de seguridad (requisito 7)
-│   └── ESQUEMA-DATOS.md         las 14 tablas, generado
-├── herramientas/
-│   ├── descargar-fuentes.py     autoaloja las tipografías
-│   └── generar-doc-esquema.js   regenera la documentación del esquema
-├── pruebas/
-│   ├── paginas.js               carga cada pantalla en un navegador real
-│   ├── flujos.js                recorre los caminos completos
-│   └── qr-contra-referencia.py  valida el generador de QR
-└── .htaccess                    red de seguridad si el dominio no apunta a public/
+eventos/                        ← esto es lo que se sube al servidor
+├── index.php                   punto de entrada único
+├── .htaccess                   reescritura, cabeceras y bloqueos
+├── app/
+│   ├── rutas.php               toda la superficie expuesta, con su guardia
+│   ├── Esquema.php             las 16 tablas, fuente única
+│   ├── Datos.php               listas de referencia del formulario
+│   ├── ayudas.php              e(), u(), testigo()…
+│   ├── Nucleo/                 App, Peticion, Enrutador, Guardia, Bd, Sesion,
+│   │                           Csrf, Cripto, Limite, Bitacora, Qr, Tema, Correo, Totp
+│   ├── Controladores/          Publico, Acceso, Carnet, Escaneo, Contactos,
+│   │                           Admin, Medios, Instalador
+│   ├── Modelos/                Evento, Persona, Credencial, Asistencia, Usuario
+│   └── Vistas/                 PHP plano; parciales, publico/, admin/, instalar/
+├── assets/                     css, js, tipografías, imágenes
+├── config/                     config.php lo escribe el instalador
+├── almacen/                    logos, fotos, respaldos, registro de errores
+├── docs/                       despliegue, seguridad, esquema de datos
+├── herramientas/               descargar tipografías, generar documentación
+└── pruebas/
 ```
 
-### Sin dependencias en el navegador
+### Sin dependencias en tiempo de ejecución
 
-No hay framework, ni CDN, ni `node_modules` en tiempo de ejecución. JavaScript plano y CSS
-con variables. Las razones son concretas: la plataforma tiene que funcionar en sedes con
-internet restringido, la IP de los asistentes no debe viajar a servidores de terceros, y una
-entidad pública debería poder mantener esto dentro de cinco años sin arqueología de
-dependencias. Node y Python solo se usan para las herramientas y las pruebas.
+Ni framework, ni Composer, ni CDN, ni `node_modules`. PHP plano y CSS con variables. Las
+razones son concretas: la plataforma debe subirse por FTP a un alojamiento compartido sin
+ejecutar nada previo, funcionar en sedes con internet restringido, no enviar la IP de los
+asistentes a terceros, y poder mantenerse dentro de cinco años sin arqueología de
+dependencias.
+
+Node y Python se usan solo para herramientas y pruebas, nunca en producción.
 
 ---
 
 ## Pruebas
 
 ```bash
-npx http-server public -p 8899 -s        # en otra terminal
+# Extremo a extremo: instala, registra, sella, acredita y exporta
+php -S 127.0.0.1:8900 -t /tmp/web /tmp/web/router.php &
+php pruebas/extremo-a-extremo.php
 
-node pruebas/paginas.js                   # las 16 pantallas, escritorio
-ANCHO=390 node pruebas/paginas.js         # las 16 pantallas, móvil
-node pruebas/flujos.js                    # 58 comprobaciones de recorridos
-python3 pruebas/qr-contra-referencia.py   # el generador de QR
+# El generador de QR
+php pruebas/qr-php-contra-js.php          # servidor contra referencia JS
+python3 pruebas/qr-contra-referencia.py   # JS contra la librería de Python
+
+# Las pantallas en un navegador real
+node pruebas/pantallas.js                 # escritorio
+ANCHO=390 node pruebas/pantallas.js       # móvil
 ```
 
-`paginas.js` verifica que cada pantalla arme su armazón, no suelte errores de consola y no
-desborde en horizontal, y deja capturas en `pruebas/capturas/`. `flujos.js` recorre el
-preregistro completo, la emisión del carnet, el check-in, el escáner del operador, la
-personalización de identidad y los seis pasos del instalador. `qr-contra-referencia.py`
-necesita `pip install qrcode` y compara matriz a matriz contra esa librería.
+`extremo-a-extremo.php` habla por HTTP y no llamando a las clases, así que comprueba también
+el enrutado, las cookies, los testigos y los guardias, que es donde suelen estar los errores.
+Incluye 19 comprobaciones de seguridad.
 
-Las tres pasan hoy: 16 pantallas limpias en ambos anchos, 58 de 58 comprobaciones y 0
-diferencias en los QR.
-
----
-
-## Lo que sigue: fase 2
-
-La interfaz se construyó pensando en cómo se va a portar, no como una maqueta desechable.
-
-- Cada archivo de `assets/js/paginas/` corresponde a una pantalla y concentra ahí su lógica.
-- `datos-demo.js` es la única fuente de datos falsos; cada arreglo suyo equivale a una
-  consulta y está anotado con la tabla que le corresponde.
-- `esquema.js` ya define las 14 tablas con sus llaves e índices, y de ahí salen tanto el SQL
-  del instalador como la documentación.
-- `tema.js` lee de `window.EVENTO_TEMA` si el servidor lo imprime, y solo cae en el
-  almacenamiento del navegador cuando no hay backend. La pantalla de identidad no cambia.
-- Los comentarios marcados con «Fase 2» señalan los puntos exactos donde entra el servidor.
-
-**Pila prevista:** PHP 8.1 o superior con PDO y MySQL/MariaDB, sin framework, para que
-despliegue en el alojamiento compartido que ya usa la entidad. El asistente de instalación
-es la puerta de entrada, igual que en WordPress.
-
-**Orden sugerido:** instalador real → autenticación y sesiones → preregistro y emisión del
-carnet → control de asistencia → reportes → correo.
-
-Antes de escribir la primera línea de PHP conviene leer la sección 5 de
-[`docs/SEGURIDAD.md`](docs/SEGURIDAD.md): es la lista de controles que el backend debe
-implementar, escrita como lista de verificación.
+Estado actual: **98 de 98** de extremo a extremo, **198** casos de QR idénticos entre PHP y
+JavaScript, **161** entre JavaScript y la referencia, y las 13 pantallas limpias en escritorio
+y móvil.
 
 ---
 
 ## Documentación
 
-- [`docs/SEGURIDAD.md`](docs/SEGURIDAD.md) — revisión de seguridad: lo que ya reduce riesgo,
-  los hallazgos abiertos, el cumplimiento de la Ley 1581 de 2012 y los controles pendientes.
-- [`docs/ESQUEMA-DATOS.md`](docs/ESQUEMA-DATOS.md) — las 14 tablas con sus columnas, llaves y
-  el porqué de cada una.
+- [`docs/DESPLIEGUE-PLESK.md`](docs/DESPLIEGUE-PLESK.md) — instalación paso a paso, nginx por
+  delante, copias de seguridad, actualizaciones y problemas frecuentes.
+- [`docs/SEGURIDAD.md`](docs/SEGURIDAD.md) — revisión de seguridad: qué reduce riesgo, qué
+  controles hay, hallazgos abiertos y cumplimiento de la Ley 1581 de 2012.
+- [`docs/ESQUEMA-DATOS.md`](docs/ESQUEMA-DATOS.md) — las 16 tablas con sus columnas y llaves,
+  generado desde `app/Esquema.php`.
 
 ---
 

@@ -1,262 +1,354 @@
 # Revisión de seguridad
 
 Plataforma de Eventos TIC · Secretaría TIC, Innovación y Gobierno Abierto — Gobernación de Nariño
-Revisión sobre la **fase 1 (interfaz)**, con el diseño de controles que la fase 2 debe implementar.
+Revisión de la **fase funcional** (PHP, base de datos, autenticación).
 
 ---
 
-## 1. Qué se revisó y qué no
+## 1. Qué cubre esta revisión
 
-Lo entregado hasta ahora es la capa de interfaz: HTML, CSS y JavaScript de navegador,
-sin servidor ni base de datos. Eso acota la revisión.
+La plataforma ya no es una maqueta: guarda datos personales de asistentes reales, controla
+quién entra al recinto y permite exportar listados. Esta revisión repasa el código que se
+escribió para eso.
 
-| Alcance | Estado |
+| Área | Estado |
 |---|---|
-| Código de navegador (inyección en el DOM, manejo de datos, dependencias) | Revisado |
-| Configuración del servidor web (cabeceras, exposición de archivos) | Entregada como `.htaccess`, sin probar en producción |
-| Datos que viajan en los códigos QR | Revisado a nivel de diseño |
-| Autenticación, autorización, sesiones, SQL | **No implementado todavía** — el diseño está en la sección 5 |
+| Autenticación y sesiones | Implementado y probado |
+| Autorización por rol | Implementado y probado |
+| Inyección SQL | Cerrada por diseño (solo sentencias preparadas) |
+| Inyección en la salida (XSS) | Escape sistemático, verificado con pruebas |
+| Falsificación de peticiones (CSRF) | Testigo en todos los envíos, verificado |
+| Fuerza bruta | Límite por acción y por clave |
+| Cifrado de datos sensibles | Documento cifrado; huella HMAC para búsquedas |
+| Subida de archivos | Validación por contenido, reescritura y limpieza de SVG |
+| Auditoría | Bitácora de solo inserción |
+| Cabeceras y exposición de archivos | En `.htaccess` y también desde PHP |
 
-Una advertencia que conviene no perder de vista: **ninguna pantalla de administración
-está protegida hoy**. `public/admin/` es HTML estático y cualquiera que conozca la URL
-lo abre. Es lo esperable en un prototipo de interfaz, pero significa que esto **no debe
-publicarse en un dominio accesible desde internet** hasta que exista la fase 2. Para la
-validación, sírvelo en local o en una red interna.
+Lo verifica `pruebas/extremo-a-extremo.php`: 98 comprobaciones sobre un servidor real, de
+las cuales 19 son específicamente de seguridad.
 
 ---
 
-## 2. Decisiones de diseño que ya reducen riesgo
-
-Estas no son promesas para después: están tomadas en el código de la fase 1.
+## 2. Decisiones de diseño que reducen riesgo
 
 ### 2.1 El QR no lleva datos personales
 
-El código del carnet contiene únicamente una URL con un identificador opaco:
+El código del carnet contiene solo una URL con un identificador opaco de 128 bits:
 
 ```
-https://eventos.narino.gov.co/c/9f3a2b7d10c4e5
+https://tic.narino.gov.co/cumbreAI/c/9f3a2b7d10c4e5a1b2c3d4e5f6a7b8c9
 ```
 
-No lleva el nombre, ni el documento, ni el correo, ni la caracterización. Quien fotografíe
-un carnet ajeno —cosa que pasa todo el tiempo en un evento— no obtiene nada por sí mismo:
-tiene que preguntarle al servidor, y el servidor decide qué entrega según quién pregunte.
+Ni nombre, ni documento, ni correo. Quien fotografíe un carnet ajeno —cosa que pasa todo el
+tiempo en un evento— no obtiene nada por sí mismo: tiene que preguntarle al servidor, y el
+servidor decide qué entrega según quién esté identificado al otro lado.
 
-El alterno habría sido meter una vCard completa dentro del QR. Es más simple y funciona sin
-conexión, pero convierte cada carnet colgado del cuello en una publicación permanente del
-documento de identidad de esa persona. No compensa.
+La alternativa habitual —meter una vCard completa dentro del QR— funciona sin conexión,
+pero convierte cada carnet colgado del cuello en una publicación permanente de la cédula.
 
-### 2.2 El código del día rota y tiene ventana
+**Qué ve cada quien al escanear un carnet** (`Escaneo::carnetAjeno`):
 
-El QR de acceso pertenece a la jornada, no al evento. Cambia cada día, se puede regenerar a
-mano si el pliego impreso se filtra —una foto en redes sociales basta— y el anterior queda
-inválido en ese momento. El esquema incluye `abre_a` y `cierra_a` por jornada: un escaneo
-fuera de esa ventana se rechaza y queda anotado.
+| Quién escanea | Qué recibe |
+|---|---|
+| Nadie identificado | Solo el nombre del evento y la pregunta de quién es. **No se revela de quién es la credencial** |
+| Otro asistente | Los cuatro campos de contacto: nombre, entidad, correo y teléfono si su dueño lo autorizó |
+| Operador o administrador | La ficha de acreditación, con documento. **Queda registrado en la bitácora** |
 
-### 2.3 Los datos sensibles viven aparte
+### 2.2 Los códigos QR funcionan desde fuera de la aplicación
 
-La caracterización (género, pertenencia étnica, condición de discapacidad) es dato sensible
-según el artículo 5 de la Ley 1581 de 2012. En el esquema está en `persona_caracterizacion`,
-una tabla separada de `persona`, con dos consecuencias prácticas: las consultas corrientes
-—listados, conteos, control de acceso— nunca la tocan, y su lectura se puede auditar de
-forma independiente.
+Es un requisito y también una decisión de seguridad. Alguien apunta la cámara al pliego de
+la puerta: el teléfono abre la URL sin ningún contexto. La plataforma no responde «no
+autorizado» —que dejaría a la persona atascada delante de la puerta—, sino que la lleva al
+acceso que corresponde recordando a dónde iba, y al terminar completa la acción.
 
-En la interfaz, la exportación con caracterización está separada de la exportación normal y
-pasa por una confirmación que dice explícitamente qué contiene.
+El destino de retorno pasa por `Url::destinoSeguro()`, que solo admite rutas internas.
+Sin esa comprobación, un enlace como `/entrar?destino=https://sitio-falso/` convertiría la
+plataforma en un trampolín creíble para robar credenciales.
 
-### 2.4 Sin dependencias externas en tiempo de ejecución
+El lector integrado (`assets/js/escaner.js`) solo sigue códigos que apunten a esta misma
+instalación y con el formato esperado. Sin eso, bastaría pegar un QR falso encima del de la
+puerta para llevar a los asistentes a una imitación del acceso.
 
-No hay CDN, ni framework, ni gestor de paquetes en el navegador. Las tipografías están
-autoalojadas (`herramientas/descargar-fuentes.py`), el generador de QR es propio y validado.
-Ventajas concretas:
+### 2.3 El código del día rota y tiene ventana horaria
 
-- No hay forma de que un tercero comprometido inyecte código en la plataforma.
-- La IP de cada asistente no viaja a servidores ajenos.
-- La política de seguridad de contenido puede prohibir orígenes externos por completo.
-- La interfaz funciona igual en sedes con salida a internet restringida.
+El QR de acceso pertenece a la jornada, no al evento: cambia cada día, se regenera a mano si
+el pliego impreso se filtra —una foto en redes basta— y el anterior queda inválido en ese
+momento. Cada jornada tiene `abre_a` y `cierra_a`: un escaneo fuera de esa franja se rechaza
+con un mensaje claro, y el intento queda anotado.
 
-### 2.5 Escape sistemático al escribir en el DOM
+### 2.4 Un ingreso por persona y jornada, garantizado por la base
 
-Todo lo que proviene de una persona pasa por `UI.esc()` antes de tocar `innerHTML`
-(`public/assets/js/ui.js`). No se usa `eval` ni `new Function` en ninguna parte.
+La regla la impone la llave única `uq_asistencia (persona_id, evento_dia_id)`, no el código
+PHP. En la puerta hay reintentos, dobles toques y dos operadores escaneando a la vez; una
+comprobación previa en PHP pierde esas carreras. El código intenta insertar e interpreta el
+choque (`Asistencia::sellar`).
 
-### 2.6 CSV a prueba de fórmulas
+### 2.5 Los datos sensibles viven aparte
 
-`UI.aCsv()` antepone un apóstrofo a los valores que empiezan por `=`, `+`, `-`, `@` o
-tabulación. Sin eso, alguien podría escribir `=HYPERLINK(...)` en el campo «entidad» del
-preregistro público y esa celda se ejecutaría al abrir el reporte en Excel, en el equipo de
-un funcionario. Es un ataque viejo y sigue funcionando.
+La caracterización —género, pertenencia étnica, condición de discapacidad— es dato sensible
+según el artículo 5 de la Ley 1581 de 2012. Está en `persona_caracterizacion`, separada de
+`persona`, con dos consecuencias prácticas: las consultas del día a día nunca la tocan, y su
+exportación se audita por separado y exige rol administrador.
 
-### 2.7 Aleatoriedad correcta
+Si alguien no diligencia la caracterización, **no se crea la fila**. Una tabla de datos
+sensibles llena de registros vacíos solo agranda el riesgo sin aportar nada.
 
-La rotación de tokens usa `crypto.getRandomValues()`, no `Math.random()`. En la fase 2 el
-equivalente es `random_bytes()` de PHP.
+### 2.6 El documento va cifrado, con huella para buscar
 
-### 2.8 Cabeceras y exposición de archivos
+`persona.documento_cifrado` usa XChaCha20-Poly1305 (libsodium) o AES-256-GCM como respaldo,
+ambos con autenticación. Junto a él, `documento_huella` guarda un HMAC-SHA256 con la llave
+del sistema.
 
-`public/.htaccess` trae `X-Content-Type-Options`, `X-Frame-Options: DENY`,
-`Referrer-Policy`, `Permissions-Policy` y una CSP sin orígenes externos. `.htaccess` en la
-raíz deniega todo, por si el alojamiento no permite apuntar el dominio a `public/`.
+La huella permite detectar que alguien ya está registrado sin descifrar toda la tabla. Es un
+HMAC y no un SHA-256 a secas porque el espacio de las cédulas colombianas es pequeño: con un
+hash sin clave, quien obtenga la tabla puede probarlas todas en minutos.
+
+> **La llave vive en `config/config.php`.** Si ese archivo se pierde, los documentos
+> guardados quedan ilegibles para siempre. Está dicho también en la guía de despliegue,
+> porque es el error de operación más caro que se puede cometer aquí.
+
+### 2.7 Dos accesos distintos, para dos riesgos distintos
+
+| | Asistente | Equipo organizador |
+|---|---|---|
+| Cómo entra | Correo + código de 6 dígitos de un solo uso | Contraseña + segundo factor |
+| Contraseña | No tiene | Argon2id (bcrypt si no está disponible) |
+| Duración | 30 días | 12 h absolutas, 2 h de inactividad |
+| Por qué | Pedirle a mil personas que inventen una contraseña para tres días produce contraseñas malas y una fila en el punto de información | Maneja datos personales de todos los asistentes |
+
+El código de acceso se guarda como SHA-256, nunca en claro, vence en diez minutos y sirve una
+sola vez. Pedir uno nuevo invalida el anterior.
+
+### 2.8 Sesiones propias, en la base de datos
+
+No se usa la sesión de PHP. En un alojamiento compartido los archivos de sesión suelen quedar
+en un directorio común legible por otras cuentas del mismo servidor. Guardándolas en la base
+se pueden cerrar a distancia y caducar de verdad.
+
+El identificador que viaja en la cookie **no es el que se guarda**: en la tabla queda su
+SHA-256. Quien consiga leer la tabla no obtiene cookies utilizables. Verificado en las
+pruebas.
+
+Las cookies salen `HttpOnly`, `SameSite=Lax` y `Secure` cuando hay HTTPS. Lax y no Strict
+porque el asistente llega desde el lector de QR de su teléfono, que cuenta como navegación
+externa: con Strict la cookie no viajaría y pediría acceso otra vez en la puerta.
+
+El identificador se rota al superar el segundo factor, para que una cookie fijada antes de
+completar la identificación no siga sirviendo.
+
+### 2.9 Autorización comprobada en el servidor, en cada petición
+
+Los guardias están declarados junto a cada ruta en `app/rutas.php`, en un solo archivo, para
+que revisar qué expone la aplicación sea leer una columna. La navegación oculta lo que no
+corresponde al rol, pero eso es cosmético: lo que decide es el guardia.
+
+Jerarquía: `administrador` ⊃ `operador` ⊃ `consulta`. El operador puede sellar ingresos pero
+no exportar con caracterización ni tocar la configuración.
+
+### 2.10 Sin dependencias externas en tiempo de ejecución
+
+Ni framework, ni Composer, ni CDN. Las tipografías están autoalojadas y el generador de QR es
+propio. Consecuencias: no hay forma de que un paquete comprometido inyecte código, la IP de
+los asistentes no viaja a terceros, la política de seguridad de contenido puede prohibir
+orígenes externos por completo, y la plataforma se sube por FTP sin ejecutar nada previo.
 
 ---
 
-## 3. Hallazgos de esta revisión
+## 3. Controles implementados
 
-### 3.1 El prototipo guarda en el navegador lo que se escribe — *aceptado, mitigado*
+### Inyección SQL
 
-**Qué pasa.** Para poder recorrer las pantallas sin servidor, el formulario guarda el
-perfil (nombre, documento, teléfono) en `localStorage`. Si alguien valida el prototipo con
-datos reales en un equipo compartido, esos datos quedan ahí.
+Todo el acceso pasa por `App\Nucleo\Bd`, que solo expone métodos con sentencias preparadas.
+No existe un método que reciba SQL ya interpolado con datos. `PDO::ATTR_EMULATE_PREPARES`
+está en `false`: las sentencias se preparan en el servidor, no del lado del cliente, que es
+donde aparecen las inyecciones por juegos de caracteres.
 
-**Mitigación aplicada.** La pantalla del carnet lo dice de forma visible e incluye un botón
-«Borrar mis datos de prueba».
+Lo único que se interpola son nombres de columna para ordenar, y salen de listas fijas del
+código.
 
-**En fase 2.** Desaparece: los datos van al servidor y en el navegador solo queda el
-identificador de sesión.
+### Salida (XSS)
 
-### 3.2 Un logo en SVG es código ejecutable — *pendiente para fase 2*
+La función `e()` es la más usada del proyecto y tiene una sola letra a propósito: si escapar
+costara más de escribir, alguien se lo saltaría «solo esta vez». Las tres excepciones son
+deliberadas y no contienen datos de personas: el SVG del QR (generado por el servidor), el
+bloque de estilo del tema (hexadecimales validados dos veces) y el contenido ya renderizado
+de una vista dentro de la plantilla.
 
-**Qué pasa.** El panel de identidad acepta SVG, que es lo correcto para que el carnet
-impreso no salga pixelado. Pero un SVG puede contener `<script>`. Dentro de una etiqueta
-`<img>` no se ejecuta —que es como lo usa la interfaz—, pero si el archivo se sirve desde
-`/almacen/logos/x.svg` y alguien navega directamente a esa URL, el script corre en el
-origen del sitio, con las cookies de sesión de quien lo abra.
+Verificado en las pruebas con un nombre `<script>alert(1)</script>` y una entidad
+`"><img src=x onerror=alert(1)>`: ninguna etiqueta llega a formarse.
 
-**Controles necesarios al implementar la subida:**
+### Falsificación de peticiones (CSRF)
 
-1. Validar el tipo real del archivo, no la extensión ni el `Content-Type` que envía el
-   navegador.
-2. Para SVG: limpiar el archivo (quitar `<script>`, `<foreignObject>`, atributos `on*` y
-   referencias externas) o rechazarlo y aceptar solo PNG y WEBP.
-3. Servir `almacen/` con `Content-Disposition: attachment` y
-   `Content-Security-Policy: sandbox`, o desde un subdominio sin sesión.
-4. Reescribir siempre los mapas de bits (PNG, JPG, WEBP) para descartar cargas útiles
-   escondidas en los metadatos.
-5. Nombre de archivo generado por el sistema, nunca el que venga del cliente.
+Testigo en todos los envíos, con el patrón de doble envío: cookie más campo del formulario.
+Se eligió sobre guardarlo en la sesión porque también hace falta en pantallas donde todavía
+no hay sesión —el preregistro y el propio acceso—, que son las que más conviene proteger.
 
-### 3.3 La CSP necesita `style-src 'unsafe-inline'` — *compromiso consciente*
+El testigo se emite en cualquier página, no solo donde hay formulario: quien llega directo
+desde un lector de QR no debería toparse con un error sin haber hecho nada raro.
 
-Las pantallas usan atributos `style=` para ajustes puntuales de maquetación, así que la
-política no puede prohibir estilos en línea. Los scripts sí van todos en archivos: no hay
-un solo `<script>` en línea en el proyecto, y por eso `script-src 'self'` va sin
-excepciones, que es lo que de verdad detiene un XSS.
+Un envío sin testigo válido responde 419 —«la página estuvo demasiado tiempo abierta»— y no
+403, porque la causa más común no es un ataque sino una pestaña que llevaba horas abierta.
 
-**Recomendación.** Al portar a PHP, mover esos atributos a clases y quitar la excepción.
+### Fuerza bruta
 
-### 3.4 El instalador es la puerta trasera clásica — *previsto*
+`App\Nucleo\Limite` cubre siete acciones con ventanas y castigos distintos: acceso del
+equipo (por cuenta y por IP), código de correo, envío de códigos, resolución de tokens de QR,
+preregistro por IP e intercambio de contactos.
 
-Un asistente de instalación accesible después de instalar permite reinstalar encima de los
-datos y quedarse con una cuenta administradora. El paso 6 lo advierte en rojo, y la regla
-para la fase 2 es dura: si existe la marca de instalación completa y la carpeta
-`public/install/` todavía está ahí, **la aplicación se niega a arrancar**. No un aviso: un
-bloqueo.
+La clave del contador se guarda como HMAC. Si se guardara en claro, la tabla de intentos
+sería una lista de correos de personas que fallaron el acceso, útil para quien la lea.
 
-### 3.5 Sin HTTPS nada de lo anterior sirve — *bloqueante para producción*
+### Enumeración de cuentas
 
-El asistente lo marca como aviso, no como error, porque en desarrollo local es normal. Para
-producción es condición de salida: sin TLS, las contraseñas del equipo organizador y los
-tokens de los carnets viajan en claro por la red del recinto, que suele ser wifi abierto.
+El mensaje de error del acceso es único: no distingue entre correo inexistente, contraseña
+mala y cuenta suspendida. Y cuando el correo no existe se verifica igual contra un hash de
+descarte, para gastar el mismo tiempo: sin eso, la diferencia de duración delata qué cuentas
+existen aunque el texto sea idéntico.
+
+Lo mismo en el acceso del asistente: pedir un código para un correo no registrado responde
+igual que para uno registrado.
+
+### Subida de archivos
+
+El logo del evento es el único archivo que se sube. Los controles, en `Admin::guardarLogo()`:
+
+1. Tipo determinado por el **contenido real** (`finfo`), no por la extensión ni por lo que
+   declare el navegador.
+2. Tamaño máximo 512 KB.
+3. Los mapas de bits se **vuelven a generar** con GD, lo que descarta cualquier carga útil
+   escondida en los metadatos, y se reducen a 600 px.
+4. Los SVG se **limpian**: se quitan `<script>`, `<foreignObject>`, `<iframe>`, atributos
+   `on*`, referencias externas, `javascript:` y declaraciones de entidades (la vía de los
+   ataques XXE).
+5. El nombre lo pone el servidor; el del cliente se descarta.
+6. **Nunca se sirven desde el disco.** Pasan por `Medios::logo`, que fija el tipo desde el
+   servidor y añade `Content-Security-Policy: sandbox`. Aunque un SVG malicioso pasara la
+   limpieza, no se ejecutaría en el origen del sitio.
+
+### Exportaciones
+
+Los CSV llevan neutralizada la inyección de fórmulas: un valor que empiece por `=`, `+`, `-`
+o `@` se antepone con un apóstrofo. Sin eso, alguien podría escribir `=HYPERLINK(...)` en el
+campo «entidad» del formulario público y esa celda se ejecutaría al abrir el reporte en el
+equipo de un funcionario.
+
+La exportación con caracterización exige rol administrador —comprobado en el servidor, no
+solo escondiendo el botón— y queda en la bitácora.
+
+### Auditoría
+
+`App\Nucleo\Bitacora` solo inserta. Registra accesos y su resultado, sellado de asistencias,
+consultas de credenciales, decisiones sobre propuestas, exportaciones, rotaciones de token,
+cambios de identidad y los rechazos de seguridad.
+
+Lo que **no** registra: el contenido de los datos personales. Dice que alguien exportó la
+caracterización, no qué decía. Un filtro descarta cualquier clave que parezca contraseña,
+documento o token antes de guardar, por si alguien pasa el formulario completo por comodidad.
+Verificado en las pruebas.
+
+### Cabeceras
+
+Se envían desde PHP **y** desde `.htaccess`. En Plesk es común que `mod_headers` no esté
+activo o que nginx sirva por delante sin aplicar las reglas de Apache; duplicarlas evita
+depender de eso.
+
+`Content-Security-Policy` sin orígenes externos, `X-Frame-Options: DENY`, `nosniff`,
+`Referrer-Policy`, `Permissions-Policy` (solo cámara, y del propio origen), y HSTS cuando la
+conexión es segura.
 
 ---
 
-## 4. Datos personales (Ley 1581 de 2012)
+## 4. Hallazgos abiertos
+
+### 4.1 La CSP necesita `style-src 'unsafe-inline'` — *compromiso consciente*
+
+Las vistas usan atributos `style=` para ajustes puntuales de maquetación, así que la política
+no puede prohibir estilos en línea. Los scripts sí van todos en archivos: no hay un solo
+`<script>` en línea, y por eso `script-src 'self'` va sin excepciones, que es lo que de
+verdad detiene un XSS.
+
+**Pendiente:** migrar esos atributos a clases y quitar la excepción.
+
+### 4.2 El instalador puede conectar a cualquier servidor — *acotado*
+
+El paso 2 abre una conexión MySQL al servidor que se le indique, lo que permitiría sondear
+máquinas de la red interna. Está acotado porque la ruta solo existe **antes** de que haya
+configuración: apenas se escribe `config/config.php`, responde 403. Quien pueda ejecutar el
+instalador ya tiene control total sobre la instalación de todos modos.
+
+**Recomendación:** completar la instalación en cuanto se suban los archivos, no dejarla a
+medias.
+
+### 4.3 El correo depende del servidor del dominio
+
+Si `mail()` no funciona, un asistente que pierda su sesión no puede volver a entrar. La
+plataforma lo registra en `almacen/registro/` y el instalador lo advierte, pero no hay
+segundo canal. **Probar el correo antes del evento no es opcional.**
+
+### 4.4 Sin política de retención — *pendiente de decisión jurídica*
+
+Nada define cuánto tiempo se conservan los registros después del evento. Debe acordarse con
+el área jurídica y ejecutarse de forma automática. Hoy, los datos se quedan.
+
+### 4.5 El teléfono de contacto no se puede retirar de lo ya compartido
+
+Quien apaga «compartir teléfono» deja de compartirlo en adelante, pero quien ya lo recibió lo
+conserva. Es inherente al intercambio de contactos —igual que una tarjeta de papel—, pero
+conviene decirlo con claridad en la pantalla de privacidad.
+
+---
+
+## 5. Datos personales (Ley 1581 de 2012)
 
 | Exigencia | Cómo se atiende |
 |---|---|
-| Autorización previa e informada | Casilla obligatoria en el preregistro, con la finalidad declarada. El esquema guarda `autorizo_datos_en` |
-| Finalidad determinada | Gestión del evento: acreditación, control de asistencia y reportes de cobertura |
-| Datos sensibles con tratamiento reforzado | Tabla aparte, opcionales, exportación con confirmación específica |
-| Derecho a conocer, actualizar y suprimir | El intercambio de contactos guarda `revocado_en` para poder deshacerlo. **Falta** definir el procedimiento de supresión a solicitud |
-| Minimización | Solo nombre y documento son obligatorios. Todo lo demás es opcional |
-| Circulación restringida | El QR no expone datos; el intercambio de contacto comparte cuatro campos y el teléfono es opcional |
-
-**Pendiente:** política de retención. Hoy nada dice cuánto tiempo se conservan los registros
-después del evento. Debe definirse con el área jurídica y ejecutarse de forma automática.
+| Autorización previa e informada | Casilla obligatoria en el preregistro, con la finalidad declarada. Se guarda `autorizo_datos_en` |
+| Finalidad determinada | Acreditación, control de asistencia y reportes de cobertura del evento |
+| Datos sensibles con tratamiento reforzado | Tabla aparte, opcionales, exportación con rol administrador y auditada |
+| Minimización | Solo nombre y documento son obligatorios; lo demás es opcional |
+| Circulación restringida | El QR no expone datos; el intercambio comparte cuatro campos y el teléfono es opcional |
+| Derecho de supresión | El intercambio de contactos guarda `revocado_en`. **Falta** el procedimiento para la persona completa |
+| Seguridad | Cifrado del documento, control de acceso por rol, auditoría de lecturas sensibles |
 
 ---
 
-## 5. Controles que la fase 2 debe implementar
+## 6. Verificación
 
-Lista de verificación para cuando entre el backend.
-
-### Autenticación y sesión
-- [ ] Contraseñas con `password_hash()` y Argon2id. Nunca MD5, SHA1 ni cifrado reversible.
-- [ ] Segundo factor obligatorio para el rol administrador.
-- [ ] Bloqueo progresivo por intentos fallidos, por cuenta y por IP.
-- [ ] Sesiones en base de datos con `expira_en`; cookies `HttpOnly`, `Secure`, `SameSite=Lax`.
-- [ ] Rotar el identificador de sesión al iniciar sesión y al cambiar de privilegio.
-- [ ] Cierre de sesión que invalide del lado del servidor, no solo borre la cookie.
-
-### Autorización
-- [ ] Verificar el rol en **cada** petición del servidor. Ocultar un botón no es un control.
-- [ ] Mínimo privilegio: el operador de acceso no ve caracterización ni exporta.
-- [ ] Verificar pertenencia al evento: un operador del evento A no puede sellar en el B.
-
-### Entrada y salida
-- [ ] Consultas exclusivamente con sentencias preparadas. Ni una concatenación.
-- [ ] Validar en el servidor todo lo que la interfaz ya valida en el navegador.
-- [ ] Escapar al renderizar en la plantilla, no al guardar.
-- [ ] Token anti-CSRF en cada formulario y en cada petición que modifique datos.
-
-### Tokens de QR
-- [ ] 128 bits de entropía como mínimo, de `random_bytes()`.
-- [ ] El token del carnet identifica; **no autoriza por sí solo**. Sellar un ingreso exige
-      además la sesión válida de un operador con permiso sobre ese evento.
-- [ ] Límite de frecuencia por token y por IP: sin él, `/c/{token}` permite enumerar
-      credenciales a fuerza bruta.
-- [ ] Revocación de credencial (`revocada_en`) para carnets perdidos.
-
-### Cifrado
-- [ ] Documento de identidad cifrado en reposo (`documento_cifrado`), con un hash con sal
-      aparte (`documento_hash`) para poder buscar duplicados sin descifrar.
-- [ ] Llave fuera de la base de datos, en variable de entorno o en `config/` fuera de la
-      raíz web, con rotación documentada.
-
-### Operación
-- [ ] Registro en bitácora de: inicios de sesión, cambios de rol, exportaciones,
-      aprobaciones, rotaciones de token y accesos a caracterización.
-- [ ] La bitácora solo admite inserciones.
-- [ ] Copia de seguridad diaria durante la semana del evento y una antes de cada migración.
-- [ ] Prueba de restauración antes del evento. Una copia que nunca se restauró no es una copia.
-
----
-
-## 6. Nginx
-
-Traducción de `public/.htaccess` para alojamientos con Nginx.
-
-```nginx
-server {
-    root /ruta/al/proyecto/public;
-
-    add_header X-Content-Type-Options "nosniff" always;
-    add_header X-Frame-Options "DENY" always;
-    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
-    add_header Permissions-Policy "camera=(self), microphone=(), geolocation=()" always;
-    add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'; object-src 'none'" always;
-
-    autoindex off;
-
-    location ~ /\. { deny all; }
-    location ~* \.(sql|log|md|ini|bak|old)$ { deny all; }
-
-    # Las subidas son datos, no código.
-    location ^~ /almacen/ {
-        add_header Content-Disposition "attachment" always;
-        add_header Content-Security-Policy "sandbox" always;
-    }
-}
+```bash
+php pruebas/extremo-a-extremo.php      # 98 comprobaciones, 19 de seguridad
+php pruebas/qr-php-contra-js.php       # el generador de QR del servidor
+python3 pruebas/qr-contra-referencia.py
+node pruebas/pantallas.js              # escritorio
+ANCHO=390 node pruebas/pantallas.js    # móvil
 ```
 
+Lo que comprueban las de seguridad, concretamente:
+
+- Un anónimo no ve registros ni el panel; un asistente tampoco entra al backoffice.
+- Un envío con testigo falso se rechaza.
+- `app/`, `config/`, `almacen/` y `pruebas/` no se sirven por la web.
+- Las cabeceras de seguridad salen en todas las respuestas.
+- Las cookies son `HttpOnly` y llevan `SameSite`.
+- La cookie de sesión no coincide con el identificador guardado en la base.
+- Un nombre con etiquetas y un atributo inyectado se escapan.
+- Un destino de redirección externo se descarta.
+- La bitácora registra la actividad y no guarda contraseñas.
+- Un token de QR inventado no revela nada.
+- Sin sesión, el QR del carnet no dice de quién es.
+- El documento se guarda cifrado y no en claro.
+
 ---
 
-## 7. Antes de salir a producción
+## 7. Antes de abrir al público
 
-1. Existe la fase 2 y `public/admin/` está autenticado.
-2. HTTPS con certificado válido y HSTS activo.
-3. `public/install/` eliminado.
+1. HTTPS con certificado válido, redirección permanente y HSTS activo.
+2. `/instalar` responde 403.
+3. `config/config.php` y `app/` inaccesibles desde el navegador.
 4. Usuario de base de datos dedicado, sin privilegios sobre otras bases.
-5. `config/` fuera de la raíz web y sin permiso de lectura para otros usuarios del servidor.
-6. Copias de seguridad programadas **y una restauración probada**.
-7. Política de retención de datos definida y automatizada.
-8. Revisión con datos reales del contraste del tema elegido: la puerta del recinto suele
-   tener sol directo.
+5. Segundo factor activado en todas las cuentas de administrador.
+6. Correo saliente probado con una cuenta real.
+7. Copias de seguridad programadas **y una restauración probada**.
+8. `proxies_confiables` configurado si hay nginx por delante, para que el límite de intentos
+   vea la IP real.
+9. Política de retención definida.
+10. Contraste del tema revisado con el logo definitivo.

@@ -1,0 +1,106 @@
+<?php
+/**
+ * Escáner del operador.
+ * @var array $jornadas @var array|null $jornadaHoy @var int $escaneosHoy
+ * @var string|null $busqueda @var array|null $encontradas
+ */
+defined('EVENTOS_TIC') || exit;
+
+$guiones = ['escaner.js'];
+?>
+<div class="view view--medium split" style="align-items:start">
+
+  <div class="stack stack--4">
+    <span class="kicker">
+      Administrador<?= $jornadaHoy ? ' · Día ' . e((string) $jornadaHoy['numero']) : '' ?>
+    </span>
+    <h1 class="hero-title">Escanear el carnet<br><em>del asistente</em></h1>
+    <p class="lead">
+      Ruta alterna cuando la persona no puede leer el código de la puerta. Al leer el QR
+      del carnet, el ingreso queda sellado con la fecha y la hora, atribuido a tu cuenta.
+    </p>
+
+    <div class="card">
+      <div class="card__head"><span>Operador en turno</span></div>
+      <div class="card__body row row--between">
+        <span style="font-size:14px;color:var(--c-title)">
+          <?= e($usuario['nombre']) ?><?= $usuario['puesto'] !== '' ? ' · ' . e($usuario['puesto']) : '' ?>
+        </span>
+        <span class="tag"><?= e(numero($escaneosHoy)) ?> escaneos hoy</span>
+      </div>
+    </div>
+
+    <?php if (!$jornadaHoy): ?>
+      <div class="notice notice--warn">
+        <span class="notice__icon">▲</span>
+        <span>
+          Hoy no hay ninguna jornada programada. Los escaneos no podrán sellarse hasta que
+          la fecha coincida con una jornada del evento.
+        </span>
+      </div>
+    <?php endif; ?>
+
+    <!-- Búsqueda manual: la salida cuando el carnet no se puede leer -->
+    <form class="card" method="post" action="<?= e(u('/admin/escaner/buscar')) ?>">
+      <?= testigo() ?>
+      <div class="card__head"><span>Buscar a mano</span></div>
+      <div class="card__body stack stack--3">
+        <p class="help">Cuando el teléfono se quedó sin batería o el código está rayado.</p>
+        <div class="row" style="flex-wrap:nowrap">
+          <label class="sr-only" for="q">Nombre, documento o correo</label>
+          <input class="input" id="q" name="q" value="<?= e((string) ($busqueda ?? '')) ?>"
+                 placeholder="Nombre, documento o correo" style="flex:1">
+          <button class="btn btn--sm btn--primary" type="submit">Buscar</button>
+        </div>
+
+        <?php if (isset($encontradas)): ?>
+          <?php if (!$encontradas): ?>
+            <div class="empty">Nadie coincide con «<?= e((string) $busqueda) ?>»</div>
+          <?php else: ?>
+            <div class="stack stack--2">
+              <?php foreach ($encontradas as $p): ?>
+                <div class="contact" style="grid-template-columns:1fr auto">
+                  <div class="stack" style="gap:2px;min-width:0">
+                    <strong class="contact__name" style="font-size:15px"><?= e($p['nombre']) ?></strong>
+                    <span class="contact__org"><?= e($p['entidad'] ?: 'Independiente') ?> · <?= e($p['municipio'] ?: '—') ?></span>
+                  </div>
+                  <?php
+                  $cred = \App\Modelos\Credencial::dePersona((int) $p['id']);
+                  if ($cred): ?>
+                    <a class="btn btn--sm btn--primary" href="<?= e(u('/c/' . $cred['token'])) ?>">Acreditar</a>
+                  <?php endif; ?>
+                </div>
+              <?php endforeach; ?>
+            </div>
+          <?php endif; ?>
+        <?php endif; ?>
+      </div>
+    </form>
+  </div>
+
+  <div class="phone">
+    <div class="phone__screen" style="min-height:520px">
+      <div class="phone__status">
+        <span><?= e(date('g:i')) ?></span>
+        <span>Lector integrado</span>
+      </div>
+
+      <div class="phone__pane" data-escaner data-destino-tipo="carnet">
+        <div class="scanner" data-escaner-marco>
+          <video data-escaner-video playsinline muted hidden></video>
+          <div class="scanner__box"></div>
+          <div class="scanner__line"></div>
+          <span class="scanner__hint" data-escaner-pista>Lee el QR del reverso del carnet</span>
+        </div>
+        <button class="btn btn--primary btn--block btn--lg" type="button" data-escaner-iniciar>
+          Abrir la cámara
+        </button>
+        <p class="help" data-escaner-alterna>
+          Si el navegador no permite la cámara, usa la aplicación de cámara del teléfono:
+          al enfocar el carnet abrirá esta misma pantalla de acreditación.
+        </p>
+      </div>
+    </div>
+  </div>
+
+</div>

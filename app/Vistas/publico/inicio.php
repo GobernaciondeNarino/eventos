@@ -1,0 +1,106 @@
+<?php
+/** Portada. @var array $jornadas @var array|null $evento @var array|null $persona */
+defined('EVENTOS_TIC') || exit;
+
+$total = count($jornadas);
+?>
+<div class="view view--medium stack stack--6">
+
+  <div class="split--balanced" style="align-items:center">
+    <div class="stack stack--5">
+      <span class="kicker">Fase 01 · Preregistro</span>
+      <h1 class="hero-title">Regístrate una vez.<br><em>Entra <?= $total > 1 ? 'los ' . e((string) $total) . ' días' : 'el día del evento' ?>.</em></h1>
+      <p class="lead">
+        Diligencia tus datos antes del evento y el día de la jornada solo escaneas el
+        código de la entrada. Sin filas, sin digitación manual.
+      </p>
+
+      <?php if ($persona !== null): ?>
+        <div class="card" style="max-width:440px">
+          <div class="card__head"><span>Ya estás registrado</span></div>
+          <div class="card__body stack stack--3">
+            <p class="help">Tu carnet está listo, <?= e($persona['nombre']) ?>.</p>
+            <div class="row">
+              <a class="btn btn--primary" href="<?= e(u('/carnet')) ?>">Ver mi carnet</a>
+              <a class="btn" href="<?= e(u('/checkin')) ?>">Registrar ingreso</a>
+            </div>
+          </div>
+        </div>
+      <?php else: ?>
+        <div class="card" style="max-width:440px">
+          <div class="card__head"><span>Acceso por correo</span></div>
+          <div class="card__body stack stack--3">
+            <form method="get" action="<?= e(u('/preregistro')) ?>" class="stack stack--3">
+              <div class="field">
+                <label class="label" for="correo">Correo electrónico</label>
+                <input class="input" type="email" id="correo" name="correo"
+                       placeholder="nombre@entidad.gov.co" autocomplete="email" inputmode="email" required>
+              </div>
+              <button class="btn btn--primary btn--block btn--lg" type="submit">Preregistrarme</button>
+            </form>
+            <p class="help">
+              ¿Ya te registraste antes?
+              <a href="<?= e(u('/entrar')) ?>">Entra con tu correo</a> y recupera tu carnet.<br>
+              <a href="<?= e(u('/admin/entrar')) ?>" class="mono"
+                 style="font-size:11px;letter-spacing:.12em;text-transform:uppercase">Soy del equipo organizador ›</a>
+            </p>
+          </div>
+        </div>
+      <?php endif; ?>
+
+      <div class="notice">
+        <span class="notice__icon" aria-hidden="true">◆</span>
+        <span>
+          Tus datos se tratan conforme a la Ley 1581 de 2012. La caracterización es
+          opcional y no viaja en el código QR del carnet.
+        </span>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card__head"><span>Secuencia de acceso</span></div>
+      <div class="card__body--tight">
+        <div class="steps">
+          <?php foreach ([
+            ['01', 'Preregístrate en línea', 'Nombre e identificación son los únicos campos obligatorios; la caracterización es opcional.'],
+            ['02', 'Recibe tu carnet', 'Llega por correo con un QR personal. No hace falta imprimirlo.'],
+            ['03', 'Escanea al entrar, cada día', 'El código de la entrada cambia por jornada y sella tu ingreso con fecha y hora.'],
+            ['04', 'Intercambia contactos', 'El QR de tu carnet comparte nombre, entidad, correo y teléfono con quien lo escanee.'],
+          ] as [$n, $t, $d]): ?>
+            <div class="steps__item">
+              <span class="steps__n"><?= e($n) ?></span>
+              <div class="stack" style="gap:5px">
+                <strong class="steps__t"><?= e($t) ?></strong>
+                <span class="steps__d"><?= e($d) ?></span>
+              </div>
+            </div>
+          <?php endforeach; ?>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <?php if ($jornadas): ?>
+    <div class="card">
+      <div class="card__head">
+        <span>Jornadas</span>
+        <span class="muted"><?= e($evento['sede'] ?? '') ?></span>
+      </div>
+      <div class="card__body grid-3">
+        <?php foreach ($jornadas as $j):
+          $esHoy = $j['fecha'] === date('Y-m-d');
+          $pasada = $j['fecha'] < date('Y-m-d');
+        ?>
+          <div class="stack" style="gap:6px">
+            <span class="kpi__label">Día <?= e((string) $j['numero']) ?></span>
+            <strong style="font-family:var(--f-display);font-size:20px;color:var(--c-title)"><?= e(fecha((string) $j['fecha'])) ?></strong>
+            <span class="tag <?= $esHoy ? '' : 'tag--mute' ?>">
+              <?= $esHoy ? 'Jornada de hoy' : ($pasada ? 'Finalizada' : 'Programada') ?>
+            </span>
+          </div>
+        <?php endforeach; ?>
+      </div>
+    </div>
+  <?php endif; ?>
+
+</div>

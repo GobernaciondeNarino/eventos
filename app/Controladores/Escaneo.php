@@ -1,0 +1,294 @@
+<?php
+declare(strict_types=1);
+
+namespace App\Controladores;
+
+defined('EVENTOS_TIC') || exit;
+
+use App\Modelos\Asistencia;
+use App\Modelos\Credencial;
+use App\Modelos\Evento;
+use App\Modelos\Persona;
+use App\Nucleo\App;
+use App\Nucleo\Bd;
+use App\Nucleo\Bitacora;
+use App\Nucleo\Guardia;
+use App\Nucleo\Limite;
+use App\Nucleo\Peticion;
+use App\Nucleo\Qr;
+use App\Nucleo\Respuesta;
+use App\Nucleo\Url;
+
+/**
+ * Lo que pasa cuando alguien apunta la cámara a un código.
+ *
+ * Estas rutas se abren desde el lector de QR del teléfono, sin ningún contexto:
+ * ni pestaña previa, ni menú, ni nadie explicando qué hacer. Están escritas
+ * para ese momento —alguien de pie en la puerta del recinto, con fila detrás—,
+ * así que cada camino termina o en una acción hecha o en una instrucción clara.
+ *
+ * Hay dos códigos distintos:
+ *
+ *   /d/{token}  el pliego pegado en la entrada, uno por jornada.
+ *               Registra el ingreso de quien lo escanea.
+ *
+ *   /c/{token}  el carnet de una persona.
+ *               Si lo escanea el equipo, sella la asistencia de esa persona.
+ *               Si lo escanea otro asistente, intercambian contacto.
+ *               Si no hay sesión, se pregunta quién es y se lleva al acceso
+ *               que corresponde, para volver aquí y continuar.
+ */
+final class Escaneo
+{
+    /* =====================================================================
+       Código de la jornada
+       ===================================================================== */
+
+    public function codigoDelDia(Peticion $peticion, array $parametros): void
+    {
+        // El guardia 'asistente' ya se encargó: si no había sesión, la persona
+        // pasó por el acceso y volvió aquí. Desde este punto siempre hay alguien.
+        $persona = Guardia::personaActual();
+        $token = (string) $parametros['token'];
+
+        Limite::exigir('token_qr', $peticion->ip());
+
+        $jornada = Evento::jornadaPorToken($token);
+        if (!$jornada) {
+            Limite::registrarFallo('token_qr', $peticion->ip());
+            Bitacora::registrar('token_dia_invalido', 'seguridad', null);
+            Respuesta::vista('publico/escaneo-resultado', [
+                'titulo'   => 'Código no reconocido',
+                'pantalla' => 'checkin',
+                'estado'   => 'error',
+                'encabezado' => 'Este código ya no sirve',
+                'mensaje'  => 'Puede que lo hayan regenerado por seguridad. Pide al equipo del evento '
+                              . 'el pliego actualizado de la entrada.',
+            ], 404);
+        }
+
+        // El código es de otro evento distinto al que la persona pertenece.
+        if ((int) $jornada['evento_id'] !== (int) $persona['evento_id']) {
+            Respuesta::vista('publico/escaneo-resultado', [
+                'titulo'   => 'Código de otro evento',
+                'pantalla' => 'checkin',
+                'estado'   => 'error',
+                'encabezado' => 'Ese código es de otro evento',
+                'mensaje'  => 'Tu registro corresponde a un evento distinto. Verifica que estés en la entrada correcta.',
+            ], 403);
+        }
+
+        [$abierta, $motivo] = Evento::jornadaAbierta($jornada);
+        if (!$abierta) {
+            Respuesta::vista('publico/escaneo-resultado', [
+                'titulo'   => 'Fuera de horario',
+                'pantalla' => 'checkin',
+                'estado'   => 'aviso',
+                'encabezado' => 'Todavía no se puede registrar',
+                'mensaje'  => $motivo,
+                'historial' => Asistencia::historial((int) $persona['id'], (int) $persona['evento_id']),
+            ]);
+        }
+
+        $resultado = Asistencia::sellar((int) $persona['id'], $jornada, 'qr_dia');
+
+        Respuesta::vista('publico/escaneo-resultado', [
+            'titulo'     => 'Ingreso registrado',
+            'pantalla'   => 'checkin',
+            'estado'     => $resultado['repetida'] ? 'aviso' : 'ok',
+            'encabezado' => $resultado['repetida'] ? 'Ya tenías el ingreso de hoy' : 'Ingreso registrado',
+            'mensaje'    => $resultado['repetida']
+                ? 'Quedó registrado a las ' . hora($resultado['cuando']) . '. No hace falta escanear de nuevo.'
+                : 'Día ' . $jornada['numero'] . ' · ' . fecha((string) $jornada['fecha']) . ' · ' . hora($resultado['cuando']),
+            'persona'    => $persona,
+            'historial'  => Asistencia::historial((int) $persona['id'], (int) $persona['evento_id']),
+        ]);
+    }
+
+    /* =====================================================================
+       Carnet de otra persona
+       ===================================================================== */
+
+    public function carnetAjeno(Peticion $peticion, array $parametros): void
+    {
+        $token = (string) $parametros['token'];
+        Limite::exigir('token_qr', $peticion->ip());
+
+        $credencial = Credencial::porToken($token);
+        if (!$credencial) {
+            Limite::registrarFallo('token_qr', $peticion->ip());
+            Respuesta::vista('publico/escaneo-resultado', [
+                'titulo'     => 'Credencial no reconocida',
+                'pantalla'   => '',
+                'estado'     => 'error',
+                'encabezado' => 'Esta credencial no existe',
+                'mensaje'    => 'El carnet pudo haber sido revocado o reemitido. Pide a la persona que muestre el suyo actualizado.',
+            ], 404);
+        }
+
+        $usuario = Guardia::usuarioActual();
+        $yo = Guardia::personaActual();
+
+        // --- El equipo lo escanea: acreditar el ingreso ---------------------
+        if ($usuario !== null && Guardia::tieneRol($usuario, 'operador')) {
+            $this->pantallaAcreditacion($credencial, $usuario);
+        }
+
+        // --- Otro asistente lo escanea: intercambio de contacto -------------
+        if ($yo !== null) {
+            if ((int) $yo['id'] === (int) $credencial['persona_id']) {
+                Respuesta::redirigir('/carnet', 'Ese es tu propio carnet.');
+            }
+            $this->pantallaContacto($credencial, $yo);
+        }
+
+        // --- Nadie identificado: se pregunta quién es -----------------------
+        // No se muestra de quién es el carnet: eso convertiría cualquier
+        // credencial fotografiada en una consulta de datos personales.
+        $evento = App::eventoActivo();
+        Respuesta::vista('publico/quien-eres', [
+            'titulo'   => 'Identifícate para continuar',
+            'pantalla' => '',
+            'evento'   => $evento,
+            'destino'  => '/c/' . $token,
+        ]);
+    }
+
+    /** Vista del operador: los datos de la persona y el botón de sellar. */
+    private function pantallaAcreditacion(array $credencial, array $usuario): never
+    {
+        // Ver una ficha es leer datos personales de alguien, aunque no se selle
+        // nada: queda registrado igual que el sellado.
+        Bitacora::registrar('credencial_consultada', 'persona', (int) $credencial['persona_id']);
+
+        $evento = App::eventoActivo();
+        $jornada = $evento ? Evento::jornadaDeHoy((int) $evento['id']) : null;
+        $yaTiene = $jornada ? Asistencia::de((int) $credencial['persona_id'], (int) $jornada['id']) : null;
+
+        Respuesta::vista('admin/acreditar', [
+            'titulo'      => 'Acreditar asistente',
+            'pantalla'    => 'admin-escaner',
+            'credencial'  => $credencial,
+            'documento'   => Persona::documento($credencial),
+            'jornada'     => $jornada,
+            'yaTiene'     => $yaTiene,
+            'historial'   => Asistencia::historial((int) $credencial['persona_id'], (int) $credencial['evento_id']),
+            'escaneosHoy' => Asistencia::escaneosDeHoy((int) $usuario['id']),
+        ]);
+    }
+
+    /** Vista del asistente: confirmar el intercambio de contacto. */
+    private function pantallaContacto(array $credencial, array $yo): never
+    {
+        $yaEs = Bd::fila(
+            'SELECT * FROM {contacto} WHERE persona_id = ? AND contacto_id = ? AND revocado_en IS NULL',
+            [$yo['id'], $credencial['persona_id']]
+        );
+
+        Respuesta::vista('publico/intercambiar', [
+            'titulo'     => 'Intercambiar contacto',
+            'pantalla'   => 'contactos',
+            'otra'       => Credencial::datosDeContacto($credencial),
+            'token'      => (string) $credencial['token'],
+            'yaEs'       => (bool) $yaEs,
+        ]);
+    }
+
+    /* =====================================================================
+       Acciones
+       ===================================================================== */
+
+    /** El asistente confirma el intercambio: se guarda en las dos direcciones. */
+    public function guardarContacto(Peticion $peticion, array $parametros): void
+    {
+        $yo = Guardia::personaActual();
+        $credencial = Credencial::porToken((string) $parametros['token']);
+
+        if (!$credencial || (int) $credencial['persona_id'] === (int) $yo['id']) {
+            Respuesta::redirigir('/contactos', 'No se pudo agregar ese contacto.', 'warn');
+        }
+        if ((int) $credencial['evento_id'] !== (int) $yo['evento_id']) {
+            Respuesta::redirigir('/contactos', 'Esa credencial es de otro evento.', 'warn');
+        }
+
+        Limite::exigir('contacto', (string) $yo['id']);
+
+        // El intercambio es recíproco: quien escanea también queda en la lista
+        // del escaneado. Es lo que la gente espera al intercambiar tarjetas, y
+        // evita que alguien recolecte contactos sin dejar el suyo.
+        Bd::transaccion(static function () use ($yo, $credencial): void {
+            foreach ([[$yo['id'], $credencial['persona_id']], [$credencial['persona_id'], $yo['id']]] as [$a, $b]) {
+                Bd::ejecutar(
+                    'INSERT INTO {contacto} (persona_id, contacto_id) VALUES (?, ?)
+                     ON DUPLICATE KEY UPDATE revocado_en = NULL',
+                    [$a, $b]
+                );
+            }
+        });
+
+        Bitacora::registrar('contacto_creado', 'persona', (int) $yo['id'], [
+            'con' => (int) $credencial['persona_id'],
+        ]);
+
+        Respuesta::redirigir('/contactos', 'Contacto agregado: ' . $credencial['nombre']);
+    }
+
+    /** El operador confirma la acreditación. */
+    public function sellarAsistencia(Peticion $peticion, array $parametros): void
+    {
+        $usuario = Guardia::usuarioActual();
+        $credencial = Credencial::porToken((string) $parametros['token']);
+        if (!$credencial) {
+            Respuesta::redirigir('/admin/escaner', 'Credencial no reconocida.', 'warn');
+        }
+
+        $evento = App::eventoActivo();
+        $numero = $peticion->entero('jornada');
+        $jornada = $numero > 0
+            ? Evento::jornada((int) $evento['id'], $numero)
+            : Evento::jornadaDeHoy((int) $evento['id']);
+
+        if (!$jornada) {
+            Respuesta::redirigir('/admin/escaner',
+                'Hoy no hay ninguna jornada programada para este evento.', 'warn');
+        }
+        if ((int) $credencial['evento_id'] !== (int) $evento['id']) {
+            Respuesta::redirigir('/admin/escaner', 'Esa credencial pertenece a otro evento.', 'warn');
+        }
+
+        $resultado = Asistencia::sellar(
+            (int) $credencial['persona_id'],
+            $jornada,
+            'carnet_operador',
+            (int) $usuario['id']
+        );
+
+        $mensaje = $resultado['repetida']
+            ? $credencial['nombre'] . ' ya tenía ingreso del día ' . $jornada['numero']
+                . ' (' . hora($resultado['cuando']) . ').'
+            : 'Ingreso de ' . $credencial['nombre'] . ' registrado · día ' . $jornada['numero'] . '.';
+
+        Respuesta::redirigir('/admin/escaner', $mensaje, $resultado['repetida'] ? 'warn' : 'ok');
+    }
+
+    /* =====================================================================
+       Pantalla de check-in del asistente
+       ===================================================================== */
+
+    public function pantallaCheckin(Peticion $peticion): void
+    {
+        $persona = Guardia::personaActual();
+        $evento = App::eventoActivo();
+        $jornadaHoy = $evento ? Evento::jornadaDeHoy((int) $evento['id']) : null;
+
+        Respuesta::vista('publico/checkin', [
+            'titulo'     => 'Registrar ingreso',
+            'pantalla'   => 'checkin',
+            'historial'  => Asistencia::historial((int) $persona['id'], (int) $persona['evento_id']),
+            'jornadaHoy' => $jornadaHoy,
+            'yaIngreso'  => $jornadaHoy
+                ? Asistencia::de((int) $persona['id'], (int) $jornadaHoy['id'])
+                : null,
+        ]);
+    }
+}

@@ -1,14 +1,19 @@
-# Configuración con credenciales: la escribe el asistente de instalación y
-# nunca debe llegar al repositorio.
+# Configuración con credenciales y la llave de cifrado: la escribe el
+# instalador y nunca debe llegar al repositorio. Perderla vuelve ilegibles
+# los documentos guardados.
 /config/config.php
+/config/permitir-reinstalar
 /config/*.local.php
 
-# Subidas de cada instalación: logos, fotos de carnet, respaldos.
-/almacen/
+# Subidas y datos de cada instalación
+/almacen/logos/*
+/almacen/fotos/*
+/almacen/respaldos/*
+/almacen/registro/*
+!/almacen/*/.gitignore
 
 # Salidas de las pruebas
 /pruebas/capturas/
-*.png.tmp
 
 # Volcados y respaldos de base de datos
 *.sql.gz
@@ -22,11 +27,9 @@ Thumbs.db
 .idea/
 .vscode/
 
-# Node: solo se usa para herramientas y pruebas, nunca en tiempo de ejecución
+# Node y Python: solo para herramientas y pruebas, nunca en producción
 node_modules/
 npm-debug.log*
-
-# Python de las herramientas
 __pycache__/
 *.pyc
 .venv/

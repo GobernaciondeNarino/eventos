@@ -1,0 +1,121 @@
+<?php
+declare(strict_types=1);
+
+/**
+ * Funciones cortas de uso constante en las vistas.
+ *
+ * Son pocas y a propósito: cada una existe porque su versión larga aparecía
+ * decenas de veces y el ruido escondía el contenido de la plantilla.
+ */
+
+defined('EVENTOS_TIC') || exit;
+
+use App\Nucleo\Url;
+
+/**
+ * Escape para HTML. Es la función más usada del proyecto.
+ *
+ * Nombre de una letra porque va dentro de cada interpolación de cada vista:
+ * <?= e($persona['nombre']) ?>. Si escapar costara más de escribir, alguien
+ * terminaría por saltárselo «solo esta vez».
+ */
+function e(mixed $valor): string
+{
+    return htmlspecialchars((string) ($valor ?? ''), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+}
+
+/** URL interna, con la subcarpeta de instalación ya puesta. */
+function u(string $ruta = '/', array $consulta = []): string
+{
+    return Url::a($ruta, $consulta);
+}
+
+/** Recurso estático con marca de versión. */
+function recurso(string $ruta): string
+{
+    return Url::recurso($ruta);
+}
+
+/** Campo oculto con el testigo contra falsificación de peticiones. */
+function testigo(): string
+{
+    return App\Nucleo\Csrf::campo();
+}
+
+/** Número con separador de miles colombiano. */
+function numero(int|float|string|null $n): string
+{
+    return number_format((float) $n, 0, ',', '.');
+}
+
+/** 1085234567 → 1.085.234.567 */
+function documento(?string $n): string
+{
+    $limpio = preg_replace('/\D/', '', (string) $n) ?? '';
+    return $limpio === '' ? '—' : strrev(implode('.', str_split(strrev($limpio), 3)));
+}
+
+/** 2026-09-15 → 15 sep 2026 */
+function fecha(?string $iso): string
+{
+    if (!$iso) {
+        return '—';
+    }
+    $marca = strtotime($iso);
+    if ($marca === false) {
+        return '—';
+    }
+    $meses = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+    return date('j', $marca) . ' ' . $meses[(int) date('n', $marca) - 1] . ' ' . date('Y', $marca);
+}
+
+function hora(?string $iso): string
+{
+    if (!$iso) {
+        return '';
+    }
+    $marca = strtotime($iso);
+    return $marca === false ? '' : date('g:i a', $marca);
+}
+
+/** «María Fernanda Zambrano» → «MZ» */
+function iniciales(?string $nombre): string
+{
+    $partes = preg_split('/\s+/', trim((string) $nombre)) ?: [];
+    $partes = array_values(array_filter($partes));
+    if (!$partes) {
+        return '?';
+    }
+    $primera = mb_substr($partes[0], 0, 1);
+    $ultima = count($partes) > 1 ? mb_substr($partes[count($partes) - 1], 0, 1) : '';
+    return mb_strtoupper($primera . $ultima);
+}
+
+/** Etiqueta legible de un rol de asistente. */
+function etiquetaRol(string $rol): string
+{
+    return [
+        'participante' => 'Participante',
+        'visitante'    => 'Visitante',
+        'expositor'    => 'Expositor',
+        'organizador'  => 'Organizador',
+        'prensa'       => 'Prensa',
+    ][$rol] ?? $rol;
+}
+
+/** Clase de la etiqueta de estado según el rol. */
+function claseRol(string $rol): string
+{
+    return match ($rol) {
+        'expositor'   => 'tag--warn',
+        'organizador' => 'tag--ok',
+        'prensa'      => 'tag--mute',
+        default       => '',
+    };
+}
+
+/** Marca «is-active» para el enlace de navegación de la pantalla actual. */
+function activo(string $pantalla, string $actual): string
+{
+    return $pantalla === $actual ? ' is-active' : '';
+}

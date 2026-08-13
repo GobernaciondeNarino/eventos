@@ -1,0 +1,111 @@
+<?php
+/** Códigos QR por jornada. @var array $jornadas @var bool $puedeRotar */
+defined('EVENTOS_TIC') || exit;
+
+$hoy = date('Y-m-d');
+?>
+<div class="view view--medium stack stack--4">
+
+  <div class="stack stack--2">
+    <span class="kicker">Administrador</span>
+    <h1>Códigos QR por día</h1>
+    <p class="lead" style="max-width:64ch">
+      El sistema genera un código distinto para cada jornada. Se imprime y se ubica en la
+      entrada; cada escaneo queda sellado con la fecha y la hora del día correspondiente.
+    </p>
+  </div>
+
+  <div class="grid-3">
+    <?php foreach ($jornadas as $j):
+      $esHoy = $j['fecha'] === $hoy;
+      $pasada = $j['fecha'] < $hoy; ?>
+      <div class="card stack" style="gap:0">
+        <div class="card__head" style="color:inherit">
+          <div class="stack" style="gap:2px">
+            <strong style="font-family:var(--f-display);font-size:17px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--c-title)">
+              Día <?= e((string) $j['numero']) ?>
+            </strong>
+            <span class="mono muted" style="font-size:10.5px;letter-spacing:normal;text-transform:none"><?= e(fecha((string) $j['fecha'])) ?></span>
+          </div>
+          <span class="tag <?= $esHoy ? '' : 'tag--mute' ?>">
+            <?= $esHoy ? 'Activo' : ($pasada ? 'Finalizado' : 'Programado') ?>
+          </span>
+        </div>
+
+        <div class="card__body stack stack--3">
+          <div class="qr-frame"><?= $j['qr'] ?></div>
+
+          <div class="stack" style="gap:7px">
+            <span class="mono muted" style="font-size:10px;letter-spacing:.06em;word-break:break-all">
+              <?= e($j['url']) ?>
+            </span>
+            <div class="row row--between mono" style="font-size:12px">
+              <span class="muted" style="letter-spacing:.1em;text-transform:uppercase">Ingresos</span>
+              <strong class="accent" style="font-weight:500"><?= e(numero($j['ingresos'])) ?></strong>
+            </div>
+            <?php if ($j['token_rotado_en']): ?>
+              <span class="mono muted" style="font-size:10.5px">
+                Regenerado el <?= e(fecha((string) $j['token_rotado_en'])) ?>
+              </span>
+            <?php endif; ?>
+          </div>
+
+          <div class="row" style="flex-wrap:nowrap">
+            <a class="btn btn--sm" style="flex:1" target="_blank" rel="noopener"
+               href="<?= e(u('/admin/qr-dias/' . (int) $j['numero'] . '/imprimir')) ?>">Imprimir</a>
+            <?php if ($puedeRotar): ?>
+              <button class="btn btn--sm btn--primary" style="flex:1" type="button"
+                      data-abrir-modal="modal-rotar-<?= (int) $j['numero'] ?>">Regenerar</button>
+            <?php endif; ?>
+          </div>
+        </div>
+      </div>
+    <?php endforeach; ?>
+  </div>
+
+  <div class="card">
+    <div class="card__head"><span>Cómo funciona la rotación</span></div>
+    <div class="card__body">
+      <div class="steps">
+        <?php foreach ([
+          ['01', 'Un código por jornada', 'Cada día tiene su propio identificador. El del día anterior deja de servir apenas cambia la fecha del evento.'],
+          ['02', 'Ventana horaria', 'El código solo acepta ingresos dentro del horario de la jornada. Fuera de esa ventana el escaneo se rechaza y queda en la bitácora.'],
+          ['03', 'Regeneración manual', 'Si el pliego impreso se filtra antes de tiempo —una foto en redes, por ejemplo— se regenera y el anterior queda inválido de inmediato.'],
+        ] as [$n, $t, $d]): ?>
+          <div class="steps__item">
+            <span class="steps__n"><?= e($n) ?></span>
+            <div class="stack" style="gap:5px">
+              <strong class="steps__t"><?= e($t) ?></strong>
+              <span class="steps__d"><?= e($d) ?></span>
+            </div>
+          </div>
+        <?php endforeach; ?>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<?php if ($puedeRotar): foreach ($jornadas as $j): ?>
+  <div class="modal hidden" id="modal-rotar-<?= (int) $j['numero'] ?>" hidden>
+    <div class="modal__panel" role="dialog" aria-modal="true" aria-label="Regenerar código">
+      <div class="modal__head">
+        <span>Confirmación</span>
+        <button class="modal__close" type="button" data-cerrar-modal aria-label="Cerrar">&times;</button>
+      </div>
+      <div class="modal__body">
+        <h2 style="font-size:22px">Regenerar el código del día <?= e((string) $j['numero']) ?></h2>
+        <p class="help">
+          El código actual dejará de funcionar de inmediato. Si ya hay pliegos impresos y
+          pegados en la entrada, habrá que reemplazarlos antes de que abra la jornada.
+        </p>
+        <form method="post" action="<?= e(u('/admin/qr-dias/rotar')) ?>" class="row row--end">
+          <?= testigo() ?>
+          <input type="hidden" name="numero" value="<?= e((string) $j['numero']) ?>">
+          <button class="btn" type="button" data-cerrar-modal>Cancelar</button>
+          <button class="btn btn--primary" type="submit">Regenerar</button>
+        </form>
+      </div>
+    </div>
+  </div>
+<?php endforeach; endif; ?>

@@ -1,0 +1,146 @@
+<?php
+declare(strict_types=1);
+
+namespace App\Nucleo;
+
+defined('EVENTOS_TIC') || exit;
+
+/**
+ * Salida al navegador: vistas, redirecciones, JSON, archivos y errores.
+ *
+ * Las vistas son PHP plano. No hay motor de plantillas porque no hace falta:
+ * con la función e() escapando por defecto y las variables pasadas de forma
+ * explícita, se consigue lo mismo sin una capa más que mantener en cinco años.
+ */
+final class Respuesta
+{
+    private static array $compartidas = [];
+
+    /** Variables disponibles en todas las vistas (identidad del evento, sesión…). */
+    public static function compartir(string $clave, mixed $valor): void
+    {
+        self::$compartidas[$clave] = $valor;
+    }
+
+    public static function compartidas(): array
+    {
+        return self::$compartidas;
+    }
+
+    /** Pinta una vista dentro de la plantilla general. */
+    public static function vista(string $vista, array $datos = [], int $codigo = 200): never
+    {
+        http_response_code($codigo);
+        echo self::render($vista, $datos);
+        exit;
+    }
+
+    /** Pinta una vista sin plantilla: para fragmentos y correos. */
+    public static function parcial(string $vista, array $datos = []): string
+    {
+        return self::capturar($vista, $datos);
+    }
+
+    private static function render(string $vista, array $datos): string
+    {
+        $contenido = self::capturar($vista, $datos);
+        $datos['contenido'] = $contenido;
+        return self::capturar('plantilla', $datos);
+    }
+
+    private static function capturar(string $vista, array $datos): string
+    {
+        $archivo = RAIZ . '/app/Vistas/' . str_replace(['..', '\\'], '', $vista) . '.php';
+        if (!is_file($archivo)) {
+            throw new \RuntimeException("No existe la vista «$vista».");
+        }
+
+        // extract() con EXTR_SKIP: una variable de la vista nunca pisa a una
+        // compartida, así que $sesion o $tema no se pueden falsear desde un
+        // controlador por descuido.
+        $variables = $datos + self::$compartidas;
+        extract($variables, EXTR_SKIP);
+
+        ob_start();
+        try {
+            require $archivo;
+        } catch (\Throwable $e) {
+            ob_end_clean();
+            throw $e;
+        }
+        return (string) ob_get_clean();
+    }
+
+    public static function redirigir(string $ruta, ?string $aviso = null, string $tipo = 'ok'): never
+    {
+        if ($aviso !== null) {
+            Aviso::poner($aviso, $tipo);
+        }
+        header('Location: ' . Url::a($ruta), true, 303);
+        exit;
+    }
+
+    public static function redirigirAbsoluto(string $url): never
+    {
+        header('Location: ' . $url, true, 303);
+        exit;
+    }
+
+    public static function json(array $datos, int $codigo = 200): never
+    {
+        http_response_code($codigo);
+        header('Content-Type: application/json; charset=utf-8');
+        header('X-Content-Type-Options: nosniff');
+        echo json_encode($datos, JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
+    /** Descarga generada al vuelo (CSV, vCard). */
+    public static function descarga(string $nombre, string $contenido, string $tipo = 'text/plain'): never
+    {
+        $nombre = preg_replace('/[^A-Za-z0-9._-]/', '_', $nombre) ?: 'descarga';
+        header('Content-Type: ' . $tipo . '; charset=utf-8');
+        header('Content-Disposition: attachment; filename="' . $nombre . '"');
+        header('Content-Length: ' . strlen($contenido));
+        header('X-Content-Type-Options: nosniff');
+        header('Cache-Control: no-store, private');
+        echo $contenido;
+        exit;
+    }
+
+    /**
+     * Sirve un archivo subido.
+     *
+     * Los logos y las fotos nunca se sirven directamente desde el disco: pasan
+     * por aquí. Así el tipo lo decide el servidor y no la extensión del
+     * archivo, y una imagen SVG con un script dentro no se ejecuta en el
+     * origen del sitio (ver docs/SEGURIDAD.md).
+     */
+    public static function archivo(string $ruta, string $tipo, bool $enLinea = true): never
+    {
+        if (!is_file($ruta)) {
+            self::error(404, 'Archivo no encontrado', 'El recurso solicitado ya no está disponible.');
+        }
+
+        header('Content-Type: ' . $tipo);
+        header('Content-Length: ' . (string) filesize($ruta));
+        header('X-Content-Type-Options: nosniff');
+        header('Content-Security-Policy: default-src \'none\'; style-src \'unsafe-inline\'; sandbox');
+        header('Cache-Control: private, max-age=86400');
+        header('Content-Disposition: ' . ($enLinea ? 'inline' : 'attachment')
+            . '; filename="' . basename($ruta) . '"');
+        readfile($ruta);
+        exit;
+    }
+
+    public static function error(int $codigo, string $titulo, string $mensaje = ''): never
+    {
+        http_response_code($codigo);
+        echo self::render('error', [
+            'codigo'  => $codigo,
+            'titulo'  => $titulo,
+            'mensaje' => $mensaje,
+        ]);
+        exit;
+    }
+}
