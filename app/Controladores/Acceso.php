@@ -299,11 +299,16 @@ final class Acceso
             }
         }
 
+        // Sin ninguna cuenta administradora, el formulario rechazaría cualquier
+        // intento con «correo o contraseña incorrectos» y nadie entendería por
+        // qué. Se dice lo que pasa: no es un secreto que valga la pena guardar
+        // —el sitio está visiblemente roto— y sin decirlo no hay salida.
         Respuesta::vista('admin/entrar', [
             'titulo'       => 'Acceso administrativo',
             'correo'       => $correo,
             'destino'      => $destino,
             'errores'      => $errores,
+            'sinCuentas'   => !\App\Nucleo\Instalacion::hayAdministrador(),
             'sinPlantilla' => true,
         ]);
     }

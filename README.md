@@ -24,7 +24,7 @@ registra gente, se sella asistencia, se aprueban exposiciones y se exportan repo
 | **Instalación** | Asistente de seis pasos que crea, actualiza o anexa las tablas |
 | **Autenticación** | Asistentes por código de correo; equipo con contraseña y segundo factor |
 | **Códigos QR** | Generador propio, verificado contra una librería de referencia |
-| **Pruebas** | 98 comprobaciones de extremo a extremo sobre un servidor real |
+| **Pruebas** | 122 comprobaciones de extremo a extremo sobre un servidor real |
 
 ---
 
@@ -76,6 +76,30 @@ hay que regenerarlos.
    y —si lo autorizaron— teléfono. Exportable en `.vcf`.
 
 ### El equipo organizador
+
+Se entra en **`/admin/entrar`** —en el despliegue actual,
+<https://tic.narino.gov.co/cumbreAI/admin/entrar>. La dirección `/admin` a secas es el panel:
+sin sesión responde 303 y lleva allí. No hay ninguna carpeta `admin/` en el servidor; todo
+pasa por `index.php`.
+
+Las cuentas del equipo viven en la tabla **`evt_usuario`** (el prefijo se elige al instalar),
+con la contraseña en hash Argon2id. Los asistentes al evento no están ahí: van a
+`evt_persona` y entran por correo, sin contraseña.
+
+Si nadie puede entrar —la instalación se interrumpió, se perdió la contraseña, el segundo
+factor quedó en un teléfono que ya no está— el diagnóstico y el arreglo están en la consola:
+
+```bash
+php herramientas/cuenta.php estado          # qué hay instalado y qué falta
+php herramientas/cuenta.php crear --correo=… --nombre="…"
+php herramientas/cuenta.php clave --correo=…
+php herramientas/cuenta.php sin-2fa --correo=…
+```
+
+Y si la base quedó sin ninguna cuenta administradora, el asistente de instalación **se reabre
+solo** en modo reparación: sin cuenta no hay forma de entrar, y cerrarlo ahí dejaría el sitio
+sin puerta. Sigue pidiendo las credenciales de la base de datos, que son la llave real del
+proceso, y no ofrece la opción que borra tablas.
 
 | Pantalla | Para qué |
 |---|---|
@@ -157,7 +181,7 @@ eventos/                        ← esto es lo que se sube al servidor
 ├── config/                     config.php lo escribe el instalador
 ├── almacen/                    logos, fotos, respaldos, registro de errores
 ├── docs/                       despliegue, seguridad, esquema de datos
-├── herramientas/               descargar tipografías, generar documentación
+├── herramientas/               cuenta.php, tipografías, documentación
 └── pruebas/
 ```
 
@@ -191,11 +215,15 @@ ANCHO=390 node pruebas/pantallas.js       # móvil
 
 `extremo-a-extremo.php` habla por HTTP y no llamando a las clases, así que comprueba también
 el enrutado, las cookies, los testigos y los guardias, que es donde suelen estar los errores.
-Incluye 19 comprobaciones de seguridad.
+Incluye 23 comprobaciones de seguridad.
 
-Estado actual: **98 de 98** de extremo a extremo, **198** casos de QR idénticos entre PHP y
+Estado actual: **122 de 122** de extremo a extremo, **198** casos de QR idénticos entre PHP y
 JavaScript, **161** entre JavaScript y la referencia, y las 13 pantallas limpias en escritorio
 y móvil.
+
+Las últimas comprobaciones cubren el caso que sacó a la luz un error real: una instalación que
+se interrumpe a mitad deja la plataforma marcada como instalada y sin ninguna cuenta con la que
+entrar. La prueba lo reproduce, comprueba que ahora tiene salida y que se vuelve a cerrar sola.
 
 ---
 

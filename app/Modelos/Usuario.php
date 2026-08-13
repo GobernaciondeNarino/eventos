@@ -75,6 +75,51 @@ final class Usuario
         return $id;
     }
 
+    /**
+     * Deja lista una cuenta administradora con ese correo, exista o no.
+     *
+     * La usa el instalador. Tiene que ser repetible: si el paso final falla por
+     * cualquier motivo —permisos del archivo de configuración, por ejemplo— hay
+     * que poder volver a pulsar «Terminar» sin toparse con «ya existe una cuenta
+     * con ese correo» y sin quedar a medias.
+     *
+     * Recibe el hash y no la contraseña: quien llama ya la convirtió, para no
+     * arrastrarla en claro entre pasos.
+     */
+    public static function asegurarAdministrador(string $correo, string $nombre, string $claveHash): int
+    {
+        $correo = mb_strtolower(trim($correo));
+        $existente = self::porCorreo($correo);
+
+        if ($existente === null) {
+            $id = Bd::insertar('usuario', [
+                'nombre'       => mb_substr(trim($nombre), 0, 160),
+                'correo'       => $correo,
+                'clave_hash'   => $claveHash,
+                'rol'          => 'administrador',
+                'puesto'       => 'Administración del evento',
+                'estado'       => 'activo',
+                'debe_cambiar' => 0,
+            ]);
+            Bitacora::registrar('usuario_creado', 'usuario', $id, ['rol' => 'administrador']);
+            return $id;
+        }
+
+        // Ya existía: se le devuelve el acceso. Quien llega hasta aquí tuvo que
+        // dar las credenciales de la base de datos, así que ya podía hacer esto
+        // mismo por fuera.
+        $id = (int) $existente['id'];
+        Bd::ejecutar(
+            "UPDATE {usuario}
+                SET nombre = ?, clave_hash = ?, rol = 'administrador', estado = 'activo', debe_cambiar = 0
+              WHERE id = ?",
+            [mb_substr(trim($nombre), 0, 160), $claveHash, $id]
+        );
+        \App\Nucleo\Sesion::cerrarTodasDe('admin', $id);
+        Bitacora::registrar('usuario_restablecido', 'usuario', $id, ['rol' => 'administrador']);
+        return $id;
+    }
+
     public static function verificarClave(array $usuario, string $clave): bool
     {
         if (!Cripto::verificarClave($clave, (string) $usuario['clave_hash'])) {

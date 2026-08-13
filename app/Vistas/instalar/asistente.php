@@ -4,11 +4,14 @@
  * @var int $paso @var array $pasos @var array $estado @var array $errores
  * @var array $requisitos @var array $permisos @var array $bloqueantes
  * @var array $presets @var array $tipografias
+ * @var bool $reparacion @var array|null $diagnostico
  */
 defined('EVENTOS_TIC') || exit;
 
 use App\Esquema;
 
+$reparacion = $reparacion ?? false;
+$diagnostico = $diagnostico ?? null;
 $bd = $estado['bd'] ?? [];
 $admin = $estado['admin'] ?? [];
 $err = static fn(string $clave): string => (string) ($errores[$clave] ?? '');
@@ -36,7 +39,10 @@ $guiones = ['instalador.js'];
         <span class="brandmark brandmark--lg" aria-hidden="true">E</span>
         <div class="stack" style="gap:2px">
           <span class="brandtext__name" style="font-size:15px">Plataforma de Eventos TIC</span>
-          <span class="brandtext__sub">Asistente de instalación · versión <?= e(APP_VERSION) ?></span>
+          <span class="brandtext__sub">
+            <?= $reparacion ? 'Reparación de la instalación' : 'Asistente de instalación' ?>
+            · versión <?= e(APP_VERSION) ?>
+          </span>
         </div>
       </div>
     </header>
@@ -50,6 +56,24 @@ $guiones = ['instalador.js'];
         </div>
       <?php endforeach; ?>
     </nav>
+
+    <?php if ($reparacion): ?>
+      <div class="notice notice--warn">
+        <span class="notice__icon" aria-hidden="true">▲</span>
+        <span class="stack" style="gap:6px">
+          <strong style="font-family:var(--f-display);font-size:13px;letter-spacing:.06em;text-transform:uppercase;color:var(--c-title)">
+            La instalación quedó a medias
+          </strong>
+          <span><?= e((string) ($diagnostico['motivo'] ?? '')) ?></span>
+          <span class="help">
+            Por eso el asistente volvió a abrirse: cerrarlo aquí dejaría la plataforma sin ninguna
+            forma de entrar. Vuelve a dar los datos de la base de datos —son la única llave de este
+            proceso— y crea la cuenta administradora. <strong>No se borrará nada:</strong> la opción
+            de instalación limpia está desactivada.
+          </span>
+        </span>
+      </div>
+    <?php endif; ?>
 
     <?php if ($err('general')): ?>
       <div class="notice notice--danger">
@@ -193,6 +217,17 @@ $guiones = ['instalador.js'];
       $prefijo = (string) ($bd['prefijo'] ?? 'evt_');
       $versionPrevia = Esquema::versionInstalada();
       $modoSugerido = $existentes ? ($versionPrevia ? 'actualizar' : 'anexar') : 'limpio';
+
+      $modos = [
+        ['limpio', 'Instalación limpia', 'Elimina las tablas con este prefijo y las crea desde cero. Se pierden los datos que hubiera.'],
+        ['actualizar', 'Actualizar lo existente', 'Conserva los datos y solo agrega las tablas y columnas que falten.'],
+        ['anexar', 'Anexar sin tocar nada', 'Crea únicamente las tablas que falten. Las que ya están se dejan intactas.'],
+      ];
+      if ($reparacion) {
+          // Reparando no se ofrece borrar: es lo contrario de lo que se vino a hacer.
+          $modos = array_values(array_filter($modos, static fn(array $m): bool => $m[0] !== 'limpio'));
+          $modoSugerido = 'actualizar';
+      }
       ?>
       <form method="post" action="<?= e(u('/instalar')) ?>" class="stack stack--4">
         <?= testigo() ?>
@@ -227,11 +262,7 @@ $guiones = ['instalador.js'];
         <div class="card">
           <div class="card__head"><span>Qué hacer con ellas</span></div>
           <div class="card__body stack stack--3">
-            <?php foreach ([
-              ['limpio', 'Instalación limpia', 'Elimina las tablas con este prefijo y las crea desde cero. Se pierden los datos que hubiera.'],
-              ['actualizar', 'Actualizar lo existente', 'Conserva los datos y solo agrega las tablas y columnas que falten.'],
-              ['anexar', 'Anexar sin tocar nada', 'Crea únicamente las tablas que falten. Las que ya están se dejan intactas.'],
-            ] as [$clave, $titulo, $texto]): ?>
+            <?php foreach ($modos as [$clave, $titulo, $texto]): ?>
               <label class="notice<?= $clave === $modoSugerido ? ' notice--warn' : '' ?>" style="cursor:pointer;align-items:flex-start">
                 <input type="radio" name="modo" value="<?= e($clave) ?>" data-modo
                        style="margin-top:3px;width:16px;height:16px;accent-color:var(--c-accent)"
@@ -471,6 +502,29 @@ $guiones = ['instalador.js'];
                 ['nombre' => 'Envío de correo', 'detalle' => 'Códigos de acceso y carnets', 'valor' => !empty($r['correo_ok']) ? 'disponible' : 'sin configurar', 'estado' => !empty($r['correo_ok']) ? 'ok' : 'warn'],
               ]); ?>
             </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card__head"><span>Cómo entrar al panel</span></div>
+          <div class="card__body stack stack--3">
+            <p class="help">
+              Anota esta dirección. El panel no vive en una carpeta <span class="mono">/admin/</span>
+              del servidor: es una ruta de la aplicación, y <span class="mono">/admin</span> a secas
+              solo redirige aquí.
+            </p>
+            <div class="check-list">
+              <?php $pintarChecks([
+                ['nombre' => 'Dirección de acceso', 'detalle' => \App\Nucleo\Url::absoluta('/admin/entrar'), 'valor' => 'guárdala', 'estado' => 'ok'],
+                ['nombre' => 'Usuario', 'detalle' => 'El correo con el que creaste la cuenta', 'valor' => (string) ($r['correo'] ?? ''), 'estado' => 'ok'],
+                ['nombre' => 'Dónde queda guardada', 'detalle' => 'Tabla de la base de datos, con la contraseña en hash', 'valor' => (string) ($r['tabla_usuario'] ?? (($r['prefijo'] ?? 'evt_') . 'usuario')), 'estado' => 'ok'],
+              ]); ?>
+            </div>
+            <p class="help">
+              La contraseña no se guarda en ninguna parte en claro: en esa tabla queda su hash
+              Argon2id. Si se pierde, se restablece desde
+              <span class="mono">herramientas/cuenta.php</span> por consola.
+            </p>
           </div>
         </div>
 

@@ -13,6 +13,7 @@ use App\Nucleo\Bitacora;
 use App\Nucleo\Config;
 use App\Nucleo\Correo;
 use App\Nucleo\Cripto;
+use App\Nucleo\Instalacion;
 use App\Nucleo\Peticion;
 use App\Nucleo\Respuesta;
 use App\Nucleo\Tema;
@@ -22,13 +23,21 @@ use App\Nucleo\Url;
  * Asistente de instalación.
  *
  * Seis pasos. El estado va en una cookie firmada y no en sesión, porque
- * todavía no hay base de datos donde guardar sesiones. La cookie no lleva la
- * contraseña de la base ni la del administrador: esas viajan en cada envío y se
- * usan de inmediato.
+ * todavía no hay base de datos donde guardar sesiones. Ninguna contraseña pasa
+ * por esa cookie: la de la base de datos se escribe en config/config.php en
+ * cuanto la conexión se comprueba, y la del administrador se convierte a hash
+ * en el paso 4 y solo viaja así.
+ *
+ * El orden del paso final importa y está explicado allí: la marca de
+ * «instalado» se escribe la última, cuando ya existen la cuenta y el evento.
+ * Escribirla antes dejaba la plataforma cerrada y sin puerta si algo fallaba
+ * después.
  *
  * Al terminar, el asistente se cierra solo: la ruta queda bloqueada mientras
  * exista config/config.php con la marca de instalación completa. No hay que
- * acordarse de borrar ninguna carpeta.
+ * acordarse de borrar ninguna carpeta. La única excepción es que la instalación
+ * quede inservible —sin cuenta administradora—; entonces se reabre en modo
+ * reparación, porque cerrarla ahí es dejar el sitio sin manera de entrar.
  */
 final class Instalador
 {
@@ -41,6 +50,12 @@ final class Instalador
         $paso = max(1, min(6, (int) ($peticion->query('paso') ?: $estado['paso'] ?? 1)));
         $errores = [];
 
+        // Reparación: la plataforma se dio por instalada pero no se puede entrar
+        // a ella. El guardia dejó pasar por eso. Se avisa en pantalla y se
+        // esconde la opción que borra tablas, que aquí nunca es la respuesta.
+        $reparacion = Instalacion::incompleta() && !is_file(RAIZ . '/config/permitir-reinstalar');
+        $diagnostico = $reparacion ? Instalacion::diagnostico() : null;
+
         if ($peticion->esPost()) {
             $accion = $peticion->campo('accion');
 
@@ -49,7 +64,7 @@ final class Instalador
                 $this->probarConexion($peticion);
             }
 
-            [$paso, $errores, $estado] = $this->procesar($peticion, $accion, $estado);
+            [$paso, $errores, $estado] = $this->procesar($peticion, $accion, $estado, $reparacion);
             $this->guardarEstado($estado + ['paso' => $paso]);
 
             if (!$errores) {
@@ -70,6 +85,8 @@ final class Instalador
             'bloqueantes' => $this->bloqueantes(),
             'presets'     => Tema::PRESETS,
             'tipografias' => Tema::TIPOGRAFIAS,
+            'reparacion'  => $reparacion,
+            'diagnostico' => $diagnostico,
             'sinPlantilla' => true,
         ]);
     }
@@ -101,6 +118,8 @@ final class Instalador
             'bloqueantes' => [],
             'presets'     => Tema::PRESETS,
             'tipografias' => Tema::TIPOGRAFIAS,
+            'reparacion'  => false,
+            'diagnostico' => null,
             'sinPlantilla' => true,
         ]);
     }
@@ -274,12 +293,12 @@ final class Instalador
        Procesamiento de cada paso
        ===================================================================== */
 
-    private function procesar(Peticion $peticion, string $accion, array $estado): array
+    private function procesar(Peticion $peticion, string $accion, array $estado, bool $reparacion = false): array
     {
         return match ($accion) {
             'paso1' => $this->paso1($estado),
             'paso2' => $this->paso2($peticion, $estado),
-            'paso3' => $this->paso3($peticion, $estado),
+            'paso3' => $this->paso3($peticion, $estado, $reparacion),
             'paso4' => $this->paso4($peticion, $estado),
             'paso5' => $this->paso5($peticion, $estado),
             'atras' => [max(1, (int) $peticion->campo('a', '1')), [], $estado],
@@ -308,24 +327,68 @@ final class Instalador
             return [2, ['general' => $mensaje], $estado + ['bd' => $this->sinClave($parametros)]];
         }
 
-        // La conexión queda activa para que el paso 3 pueda mirar las tablas.
-        Bd::conectar($parametros);
-        Bd::establecerPrefijo($parametros['prefijo']);
-        Config::establecerEnMemoria([
-            'bd_host' => $parametros['host'], 'bd_puerto' => $parametros['puerto'],
-            'bd_nombre' => $parametros['nombre'], 'bd_usuario' => $parametros['usuario'],
-            'bd_clave' => $parametros['clave'], 'bd_prefijo' => $parametros['prefijo'],
-        ]);
+        // Si veníamos conectados a otra base —una reparación, o alguien que
+        // volvió atrás y cambió los datos—, esa conexión ya no sirve.
+        Bd::reiniciar();
+        Instalacion::olvidar();
 
-        $estado['bd'] = $parametros;   // la clave se guarda cifrada en la cookie
+        // La contraseña de la base se guarda ya en config/config.php, con la
+        // instalación marcada como no terminada. Es el único sitio donde tiene
+        // que estar y donde va a acabar de todos modos: una carpeta bloqueada
+        // por el servidor y un archivo .php, que aunque se sirviera como
+        // estático no mostraría nada. Antes viajaba en la cookie del asistente,
+        // que es exactamente lo que no debe pasar con una credencial.
+        if (!Config::escribir($this->configuracionParcial($parametros))) {
+            return [2, ['general' => 'La conexión funciona, pero no se pudo escribir config/config.php. '
+                . 'Dale permiso de escritura a la carpeta config/ y vuelve a intentarlo.'],
+                $estado + ['bd' => $this->sinClave($parametros)]];
+        }
+
+        if (Instalacion::incompleta()) {
+            Bitacora::registrar('instalacion_reparacion', 'sistema', null, [
+                'motivo' => Instalacion::diagnostico()['motivo'],
+            ]);
+        }
+
+        $estado['bd'] = $this->sinClave($parametros);
         return [3, [], $estado];
     }
 
-    private function paso3(Peticion $peticion, array $estado): array
+    /**
+     * Lo que se sabe tras el paso 2: los datos de conexión y nada más.
+     *
+     * Con el operador de unión, lo nuevo pisa a lo anterior y lo anterior pisa
+     * a los valores por defecto. Así una reparación sobre una instalación viva
+     * no la marca como no instalada a mitad del proceso —eso dejaría el sitio
+     * público redirigiendo al asistente— ni pierde la llave de cifrado.
+     */
+    private function configuracionParcial(array $parametros): array
+    {
+        return [
+            'bd_host'    => $parametros['host'],
+            'bd_puerto'  => (int) $parametros['puerto'],
+            'bd_nombre'  => $parametros['nombre'],
+            'bd_usuario' => $parametros['usuario'],
+            'bd_clave'   => $parametros['clave'],
+            'bd_prefijo' => $parametros['prefijo'],
+        ] + Config::todo() + [
+            'instalado'    => false,
+            'version'      => APP_VERSION,
+            'zona_horaria' => 'America/Bogota',
+        ];
+    }
+
+    private function paso3(Peticion $peticion, array $estado, bool $reparacion = false): array
     {
         $modo = $peticion->campo('modo', 'limpio');
         if (!in_array($modo, ['limpio', 'actualizar', 'anexar'], true)) {
             $modo = 'limpio';
+        }
+        // En una reparación no se borra nada, aunque el formulario venga
+        // manipulado: quien llega aquí lo hace porque el sitio está roto, no
+        // para vaciarlo.
+        if ($reparacion && $modo === 'limpio') {
+            $modo = 'actualizar';
         }
 
         if (!$this->reconectar($estado)) {
@@ -368,10 +431,13 @@ final class Instalador
             return [4, $errores, $estado + ['admin' => ['nombre' => $nombre, 'correo' => $correo]]];
         }
 
+        // Se guarda el hash, no la contraseña. El estado del asistente viaja en
+        // una cookie firmada pero legible: si alguien la captura, con el hash no
+        // obtiene la contraseña del administrador del evento.
         $estado['admin'] = [
-            'nombre' => $nombre,
-            'correo' => $correo,
-            'clave'  => $clave,
+            'nombre'     => $nombre,
+            'correo'     => $correo,
+            'clave_hash' => Cripto::hashClave($clave),
             'exigir_2fa' => $peticion->marcado('ad_2fa'),
         ];
         return [5, [], $estado];
@@ -406,18 +472,21 @@ final class Instalador
         $tipografia = $peticion->campo('tipografia', 'tecnologica');
 
         try {
-            // La llave de cifrado se genera antes de guardar nada: la persona y
-            // su documento ya se cifran con ella desde el primer registro.
-            $llave = Cripto::generarLlave();
+            // La llave de cifrado se genera aquí y solo viaja al archivo de
+            // configuración; nunca a la cookie del asistente. Y se genera una
+            // sola vez: en una reparación sobre una instalación que ya tiene
+            // datos, cambiarla dejaría ilegibles todos los documentos guardados.
+            $llave = (string) Config::obtener('llave_cifrado', '') ?: Cripto::generarLlave();
+
             $configuracion = [
                 'instalado'       => true,
                 'version'         => APP_VERSION,
-                'bd_host'         => $estado['bd']['host'],
-                'bd_puerto'       => (int) $estado['bd']['puerto'],
-                'bd_nombre'       => $estado['bd']['nombre'],
-                'bd_usuario'      => $estado['bd']['usuario'],
-                'bd_clave'        => $estado['bd']['clave'],
-                'bd_prefijo'      => $estado['bd']['prefijo'],
+                'bd_host'         => Config::obtener('bd_host'),
+                'bd_puerto'       => (int) Config::obtener('bd_puerto', 3306),
+                'bd_nombre'       => Config::obtener('bd_nombre'),
+                'bd_usuario'      => Config::obtener('bd_usuario'),
+                'bd_clave'        => Config::obtener('bd_clave'),
+                'bd_prefijo'      => Config::obtener('bd_prefijo', 'evt_'),
                 'llave_cifrado'   => $llave,
                 'zona_horaria'    => 'America/Bogota',
                 'url_base'        => rtrim(\App\Nucleo\App::peticion()->origen()
@@ -431,33 +500,52 @@ final class Instalador
                 'instalado_en'    => date('c'),
             ];
 
-            if (!Config::escribir($configuracion)) {
-                return [5, ['general' => 'No se pudo escribir config/config.php. Revisa los permisos de esa carpeta.'], $estado];
+            // ORDEN IMPORTANTE. La configuración se escribe al final, y solo si
+            // todo lo demás salió bien.
+            //
+            // Antes se escribía primero, y una excepción en cualquiera de los
+            // pasos siguientes dejaba la plataforma marcada como instalada pero
+            // sin cuenta administradora: el asistente respondía «ya está
+            // instalada» y el acceso del equipo «correo o contraseña
+            // incorrectos». Sin manera de entrar y sin manera de reintentar.
+            //
+            // Nada de lo que viene a continuación necesita la llave de cifrado
+            // ni el archivo en disco: basta con tener la configuración en
+            // memoria para resolver el prefijo de las tablas.
+            Config::establecerEnMemoria($configuracion);
+            Bd::establecerPrefijo((string) $configuracion['bd_prefijo']);
+
+            $usuarioId = Usuario::asegurarAdministrador(
+                (string) $estado['admin']['correo'],
+                (string) $estado['admin']['nombre'],
+                (string) $estado['admin']['clave_hash']
+            );
+
+            $eventoId = (int) ($estado['evento_id'] ?? 0);
+            if ($eventoId === 0) {
+                $eventoId = Evento::crear([
+                    'nombre'       => $nombreEvento,
+                    'dependencia'  => $peticion->campo('ev_dependencia'),
+                    'sede'         => $peticion->campo('ev_sede'),
+                    'fecha_inicio' => $fecha,
+                    'jornadas'     => $jornadas,
+                    'estado'       => 'abierto',
+                    'activo'       => true,
+                    'preset'       => $preset,
+                    'tipografia'   => $tipografia,
+                ]);
+                // Si la escritura del archivo falla y hay que reintentar, no se
+                // crea un segundo evento repetido.
+                $estado['evento_id'] = $eventoId;
             }
 
-            Config::establecerEnMemoria($configuracion);
-            Bd::establecerPrefijo($estado['bd']['prefijo']);
+            if (!Config::escribir($configuracion)) {
+                return [5, ['general' => 'La cuenta y el evento quedaron creados, pero no se pudo escribir '
+                    . 'config/config.php. Dale permiso de escritura a la carpeta config/ y vuelve a pulsar '
+                    . 'Terminar: no se duplicará nada.'], $estado];
+            }
 
-            $usuarioId = Usuario::crear([
-                'nombre' => $estado['admin']['nombre'],
-                'correo' => $estado['admin']['correo'],
-                'clave'  => $estado['admin']['clave'],
-                'rol'    => 'administrador',
-                'puesto' => 'Administración del evento',
-            ]);
-
-            $eventoId = Evento::crear([
-                'nombre'       => $nombreEvento,
-                'dependencia'  => $peticion->campo('ev_dependencia'),
-                'sede'         => $peticion->campo('ev_sede'),
-                'fecha_inicio' => $fecha,
-                'jornadas'     => $jornadas,
-                'estado'       => 'abierto',
-                'activo'       => true,
-                'preset'       => $preset,
-                'tipografia'   => $tipografia,
-            ]);
-
+            Instalacion::olvidar();
             Bitacora::registrar('instalacion', 'sistema', $eventoId, [
                 'modo'     => $estado['modo'] ?? 'limpio',
                 'jornadas' => $jornadas,
@@ -469,13 +557,14 @@ final class Instalador
                 'correo'     => $estado['admin']['correo'],
                 'evento'     => $nombreEvento,
                 'jornadas'   => $jornadas,
-                'prefijo'    => $estado['bd']['prefijo'],
+                'prefijo'    => (string) $configuracion['bd_prefijo'],
+                'tabla_usuario' => $configuracion['bd_prefijo'] . 'usuario',
                 'exigir_2fa' => (bool) ($estado['admin']['exigir_2fa'] ?? true),
                 'https'      => \App\Nucleo\App::peticion()->esSegura(),
                 'correo_ok'  => Correo::disponible(),
             ];
-            // Ya no hace falta arrastrar credenciales en la cookie.
-            unset($estado['bd'], $estado['admin']);
+            // Ya no hace falta arrastrar nada de esto en la cookie.
+            unset($estado['bd'], $estado['admin'], $estado['evento_id']);
             $this->guardarEstado(['paso' => 6, 'resultado' => $estado['resultado']]);
 
             return [6, [], $estado];
@@ -491,19 +580,21 @@ final class Instalador
         return preg_replace('/^www\./', '', (string) $host) ?: 'localhost';
     }
 
+    /**
+     * Vuelve a abrir la conexión entre un paso y el siguiente.
+     *
+     * La contraseña sale de config/config.php, que el paso 2 dejó escrito. La
+     * cookie del asistente solo lleva lo que no es secreto: servidor, base,
+     * usuario y prefijo, para poder repintar el formulario.
+     */
     private function reconectar(array $estado): bool
     {
-        if (empty($estado['bd'])) {
+        if (empty($estado['bd']) || Config::obtener('bd_nombre') === null) {
             return false;
         }
         try {
-            Bd::conectar($estado['bd']);
-            Bd::establecerPrefijo((string) $estado['bd']['prefijo']);
-            Config::establecerEnMemoria([
-                'bd_host' => $estado['bd']['host'], 'bd_puerto' => $estado['bd']['puerto'],
-                'bd_nombre' => $estado['bd']['nombre'], 'bd_usuario' => $estado['bd']['usuario'],
-                'bd_clave' => $estado['bd']['clave'], 'bd_prefijo' => $estado['bd']['prefijo'],
-            ]);
+            Bd::conectar();
+            Bd::establecerPrefijo((string) Config::obtener('bd_prefijo', 'evt_'));
             return true;
         } catch (\Throwable) {
             return false;

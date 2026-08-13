@@ -133,13 +133,23 @@ final class Respuesta
         exit;
     }
 
-    public static function error(int $codigo, string $titulo, string $mensaje = ''): never
+    /**
+     * Página de error.
+     *
+     * $acciones permite ofrecer una salida concreta en vez del «Ir al inicio»
+     * de siempre, que en un 503 de la propia portada no lleva a ninguna parte.
+     * Cada acción es ['texto' => …, 'url' => …, 'principal' => bool].
+     *
+     * @param array<int, array{texto: string, url: string, principal?: bool}> $acciones
+     */
+    public static function error(int $codigo, string $titulo, string $mensaje = '', array $acciones = []): never
     {
         http_response_code($codigo);
         echo self::render('error', [
-            'codigo'  => $codigo,
-            'titulo'  => $titulo,
-            'mensaje' => $mensaje,
+            'codigo'   => $codigo,
+            'titulo'   => $titulo,
+            'mensaje'  => $mensaje,
+            'acciones' => $acciones,
         ]);
         exit;
     }

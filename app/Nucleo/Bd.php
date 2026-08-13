@@ -89,6 +89,18 @@ final class Bd
         self::$prefijo = $prefijo;
     }
 
+    /**
+     * Suelta la conexión guardada.
+     *
+     * Solo lo usa el instalador: cuando alguien cambia los datos de conexión a
+     * mitad del asistente, la conexión anterior apunta a otra base y seguir
+     * usándola crearía las tablas donde no es.
+     */
+    public static function reiniciar(): void
+    {
+        self::$pdo = null;
+    }
+
     public static function prefijo(): string
     {
         return self::$prefijo !== '' ? self::$prefijo : (string) Config::obtener('bd_prefijo', 'evt_');

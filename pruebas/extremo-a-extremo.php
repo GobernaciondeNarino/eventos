@@ -186,6 +186,19 @@ final class Cliente
    Utilidades
    ========================================================================= */
 
+/**
+ * Contenido legible de la cookie del asistente.
+ *
+ * setcookie() codifica el valor para URL, así que hay que deshacer eso antes de
+ * deshacer el base64. Sin el urldecode, un valor con «+» o «/» —que aparecen o
+ * no según el hash, y por eso fallaba a ratos— se decodifica a nada y cualquier
+ * comprobación sobre su contenido pasaría sin comprobar nada.
+ */
+function cargaDeCookie(string $valor): string
+{
+    return base64_decode(urldecode($valor), true) ?: '';
+}
+
 /** Extrae el token de un enlace /d/xxxx o /c/xxxx que aparezca en el HTML. */
 function tokenDe(string $html, string $tipo): string
 {
@@ -255,6 +268,15 @@ $html = $instalador->post('/instalar', [
 comprobar('paso 2 → 3', str_contains($html, 'Tablas de la aplicación'));
 comprobar('detecta que la base está vacía', str_contains($html, 'No hay ninguna tabla'));
 
+// La contraseña de la base pasa a config/config.php en cuanto la conexión se
+// comprueba, y no sigue viajando en la cookie del asistente paso tras paso.
+$cookieTrasPaso2 = cargaDeCookie($instalador->cookie('evtic_instalacion'));
+comprobar('la contraseña de la base sale de la cookie en el paso 2',
+    !str_contains($cookieTrasPaso2, $BD['clave']));
+comprobar('la escribe en config/config.php sin dar la instalación por terminada',
+    is_file($RAIZ . '/config/config.php')
+    && (require $RAIZ . '/config/config.php')['instalado'] === false);
+
 $html = $instalador->post('/instalar', ['accion' => 'paso3', 'modo' => 'limpio']);
 comprobar('paso 3 → 4', str_contains($html, 'Cuenta administradora'));
 
@@ -285,6 +307,11 @@ $html = $instalador->post('/instalar', [
 ]);
 comprobar('paso 4 → 5', str_contains($html, 'Primer evento'));
 
+$cookieTrasPaso4 = cargaDeCookie($instalador->cookie('evtic_instalacion'));
+comprobar('la contraseña del administrador no viaja en claro en la cookie',
+    !str_contains($cookieTrasPaso4, 'una frase larga y facil de recordar'));
+comprobar('en su lugar viaja el hash', str_contains($cookieTrasPaso4, 'clave_hash'));
+
 $html = $instalador->post('/instalar', [
     'accion' => 'paso5',
     'ev_nombre' => 'Cumbre Tecnológica CIOS Nariño',
@@ -301,13 +328,143 @@ comprobar('escribió config/config.php', is_file($RAIZ . '/config/config.php'));
 $config = require $RAIZ . '/config/config.php';
 comprobar('guardó la llave de cifrado', strlen(base64_decode((string) $config['llave_cifrado'], true) ?: '') === 32);
 comprobar('la contraseña de la base no quedó en la cookie de instalación',
-    !str_contains(base64_decode($instalador->cookie('evtic_instalacion'), true) ?: '', $BD['clave']));
+    !str_contains(cargaDeCookie($instalador->cookie('evtic_instalacion')), $BD['clave']));
 
 $jornadas = (int) $pdo->query("SELECT COUNT(*) FROM {$BD['prefijo']}evento_dia")->fetchColumn();
 comprobar('creó una jornada por día', $jornadas === 3, (string) $jornadas);
 
+// Dónde queda la cuenta administradora. Se comprueba porque es lo primero que
+// alguien busca cuando no puede entrar, y el nombre depende del prefijo.
+$fila = $pdo->query("SELECT correo, rol, estado, clave_hash FROM {$BD['prefijo']}usuario")->fetch(PDO::FETCH_ASSOC);
+comprobar('la cuenta quedó en la tabla ' . $BD['prefijo'] . 'usuario',
+    ($fila['correo'] ?? '') === 'aerazo@narino.gov.co');
+comprobar('con rol administrador y activa',
+    ($fila['rol'] ?? '') === 'administrador' && ($fila['estado'] ?? '') === 'activo');
+comprobar('la contraseña quedó en hash, no en claro',
+    str_starts_with((string) ($fila['clave_hash'] ?? ''), '$')
+    && !str_contains((string) ($fila['clave_hash'] ?? ''), 'frase larga'));
+
 $html = $instalador->get('/instalar');
 comprobar('el asistente se cierra tras instalar', str_contains($html, 'ya está instalada'));
+
+// La queja que originó todo esto: /admin/ con barra final no es una carpeta del
+// servidor, es una ruta de la aplicación que lleva al acceso del equipo.
+$anonimo = new Cliente($BASE);
+foreach (['/admin', '/admin/'] as $ruta) {
+    $anonimo->get($ruta, false);
+    comprobar("$ruta lleva al acceso del equipo",
+        $anonimo->codigo === 303
+        && str_contains($anonimo->cabecera('Location'), '/admin/entrar'),
+        $anonimo->codigo . ' → ' . $anonimo->cabecera('Location'));
+}
+
+/* =========================================================================
+   1b · Instalación incompleta y su reparación
+   -------------------------------------------------------------------------
+   Va aquí, recién instalado y antes de que haya gente registrada, porque
+   deja la base sin cuentas ni evento; al terminar la reparación vuelve al
+   mismo punto y el resto del guion sigue como si nada.
+
+   Reproduce lo que pasó en producción: config/config.php escrito y marcado
+   como instalado, tablas creadas, y ninguna cuenta administradora. Antes eso
+   era un callejón sin salida —el asistente respondía «ya está instalada» y el
+   acceso «correo o contraseña incorrectos»—, así que se comprueba que ahora
+   tiene salida y que se vuelve a cerrar sola.
+   ========================================================================= */
+titulo('Instalación incompleta');
+
+// Se borran también las dependencias a mano: con FOREIGN_KEY_CHECKS apagado
+// las cascadas no se disparan y quedarían jornadas huérfanas de un evento que
+// ya no existe, que es un estado que la aplicación nunca produce.
+$borrar = static function (array $tablas) use ($pdo, $BD): void {
+    $pdo->exec('SET FOREIGN_KEY_CHECKS = 0');
+    foreach ($tablas as $tabla) {
+        $pdo->exec("DELETE FROM {$BD['prefijo']}$tabla");
+    }
+    $pdo->exec('SET FOREIGN_KEY_CHECKS = 1');
+};
+$anotaciones = static fn(): int => (int) $pdo->query("SELECT COUNT(*) FROM {$BD['prefijo']}bitacora")->fetchColumn();
+$antesDeReparar = $anotaciones();
+
+// Con cuenta pero sin evento: es el equipo quien tiene que crearlo.
+$borrar(['asistencia', 'charla', 'evento_dia', 'evento_tema', 'evento']);
+$visitante = new Cliente($BASE);
+$visitante->get('/', false);
+comprobar('sin evento, la portada responde 503', $visitante->codigo === 503, (string) $visitante->codigo);
+comprobar('y manda al panel a crearlo',
+    str_contains($visitante->cuerpo, 'Todavía no hay un evento abierto')
+    && str_contains($visitante->cuerpo, 'Entrar al panel'));
+
+// Sin ninguna cuenta: ya no hay quien lo cree.
+$borrar(['sesion', 'usuario']);
+$perdido = new Cliente($BASE);
+
+$perdido->get('/', false);
+comprobar('sin cuentas, dice que la instalación quedó a medias',
+    $perdido->codigo === 503 && str_contains($perdido->cuerpo, 'quedó a medias'),
+    (string) $perdido->codigo);
+comprobar('y ofrece terminarla', str_contains($perdido->cuerpo, 'Terminar la instalación'));
+
+$html = $perdido->get('/admin/entrar');
+comprobar('el acceso avisa de que no hay ninguna cuenta',
+    str_contains($html, 'Todavía no hay ninguna cuenta'));
+
+$html = $perdido->get('/instalar');
+comprobar('el asistente vuelve a abrirse en modo reparación',
+    str_contains($html, 'Reparación de la instalación'));
+
+$perdido->post('/instalar', ['accion' => 'paso1']);
+$html = $perdido->post('/instalar', [
+    'accion' => 'paso2',
+    'bd_host' => 'localhost', 'bd_puerto' => '3306',
+    'bd_nombre' => $BD['nombre'], 'bd_usuario' => $BD['usuario'],
+    'bd_clave' => $BD['clave'], 'bd_prefijo' => $BD['prefijo'],
+]);
+comprobar('la reparación exige otra vez las credenciales de la base',
+    str_contains($html, 'Tablas de la aplicación'));
+comprobar('y no ofrece la opción que borra datos',
+    !str_contains($html, 'Instalación limpia'));
+
+// Aunque se envíe a mano, «limpio» no se aplica en una reparación.
+$html = $perdido->post('/instalar', ['accion' => 'paso3', 'modo' => 'limpio']);
+comprobar('paso 3 de la reparación', str_contains($html, 'Cuenta administradora'));
+comprobar('no borró nada de lo que ya había',
+    $anotaciones() >= $antesDeReparar, $anotaciones() . ' de ' . $antesDeReparar);
+
+$perdido->post('/instalar', [
+    'accion' => 'paso4', 'ad_nombre' => 'Andrea Lucía Erazo',
+    'ad_correo' => 'aerazo@narino.gov.co',
+    'ad_clave' => 'una frase larga y facil de recordar',
+    'ad_clave2' => 'una frase larga y facil de recordar',
+    'ad_2fa' => '',
+]);
+$html = $perdido->post('/instalar', [
+    'accion' => 'paso5',
+    'ev_nombre' => 'Cumbre Tecnológica CIOS Nariño',
+    'ev_dependencia' => 'Secretaría TIC',
+    'ev_sede' => 'Pasto',
+    'ev_inicio' => date('Y-m-d'), 'ev_dias' => '3',
+    'preset' => 'tic-nocturno', 'tipografia' => 'tecnologica',
+]);
+comprobar('la reparación termina', str_contains($html, 'Instalación terminada'));
+comprobar('y dice dónde quedó guardada la cuenta',
+    str_contains($html, $BD['prefijo'] . 'usuario'));
+
+$html = $perdido->get('/instalar');
+comprobar('el asistente se cierra otra vez solo', str_contains($html, 'ya está instalada'));
+
+$recuperado = new Cliente($BASE);
+$recuperado->get('/admin/entrar');
+$html = $recuperado->post('/admin/entrar', [
+    'correo' => 'aerazo@narino.gov.co',
+    'clave'  => 'una frase larga y facil de recordar',
+]);
+comprobar('se puede entrar al panel con la cuenta reparada',
+    str_contains($html, 'Indicadores') || str_contains($html, 'Panel'),
+    (string) $recuperado->codigo);
+$html = $recuperado->get('/admin/entrar');
+comprobar('y el aviso de «no hay cuentas» desaparece',
+    !str_contains($html, 'Todavía no hay ninguna cuenta'));
 
 /* =========================================================================
    2 · Preregistro de un asistente

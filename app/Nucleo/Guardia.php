@@ -157,6 +157,18 @@ final class Guardia
         if (is_file(RAIZ . '/config/permitir-reinstalar')) {
             return;
         }
+        // Marcada como instalada pero sin cuenta con la que entrar: cerrar el
+        // asistente aquí deja la plataforma sin ninguna puerta. Se reabre en
+        // modo reparación —sin la opción que borra datos— y se cierra sola en
+        // cuanto exista una cuenta administradora. La barrera de verdad sigue
+        // en el paso 2, que exige las credenciales de la base de datos.
+        //
+        // No se anota nada aquí: esta ruta la puede pedir cualquiera y la
+        // bitácora se llenaría de ruido. Queda anotado en el paso 2, cuando
+        // alguien demuestra tener esas credenciales.
+        if (Instalacion::incompleta()) {
+            return;
+        }
         Respuesta::error(403, 'La plataforma ya está instalada',
             'El asistente de instalación se cierra al terminar. Para volver a ejecutarlo, '
             . 'crea el archivo config/permitir-reinstalar en el servidor.');

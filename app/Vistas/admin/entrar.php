@@ -1,7 +1,11 @@
 <?php
-/** Acceso del equipo organizador. @var string $correo @var string $destino @var array $errores */
+/**
+ * Acceso del equipo organizador.
+ * @var string $correo @var string $destino @var array $errores @var bool $sinCuentas
+ */
 defined('EVENTOS_TIC') || exit;
 
+$sinCuentas = $sinCuentas ?? false;
 $marca = require __DIR__ . '/../parciales/marca.php';
 ?>
 <main class="acceso" id="contenido">
@@ -19,6 +23,26 @@ $marca = require __DIR__ . '/../parciales/marca.php';
 
       <div class="card__head"><span>Identifícate</span></div>
       <div class="card__body stack stack--4">
+
+        <?php if ($sinCuentas): ?>
+          <div class="notice notice--warn">
+            <span class="notice__icon" aria-hidden="true">▲</span>
+            <span class="stack" style="gap:6px">
+              <strong style="font-family:var(--f-display);font-size:13px;letter-spacing:.06em;text-transform:uppercase;color:var(--c-title)">
+                Todavía no hay ninguna cuenta
+              </strong>
+              <span>
+                La base de datos no tiene ninguna cuenta administradora activa, así que ninguna
+                contraseña va a funcionar aquí. La instalación quedó a medias.
+              </span>
+              <span class="help">
+                Termínala en <a href="<?= e(u('/instalar')) ?>">el asistente</a>, que volvió a
+                abrirse por este motivo. También puedes crearla por consola con
+                <span class="mono">php herramientas/cuenta.php crear</span>.
+              </span>
+            </span>
+          </div>
+        <?php endif; ?>
 
         <?php if (isset($errores['general'])): ?>
           <div class="notice notice--danger">

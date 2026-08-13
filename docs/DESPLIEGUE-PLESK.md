@@ -143,6 +143,32 @@ código de acceso es lo único que lo identifica.
 
 ---
 
+## 3.7 Entrar al panel
+
+| | |
+|---|---|
+| **Dirección** | `https://tic.narino.gov.co/cumbreAI/admin/entrar` |
+| **Usuario** | El correo que diste en el paso 4 del asistente |
+| **Dónde queda guardada** | Tabla `evt_usuario` (el prefijo es el que elegiste en el paso 2) |
+
+Tres cosas que confunden y conviene tener claras:
+
+**No existe una carpeta `admin/` en el servidor.** Todo pasa por `index.php`; `/cumbreAI/admin/`
+es una ruta de la aplicación, no un directorio. Si entras ahí sin sesión, responde un 303 y te
+lleva a `/cumbreAI/admin/entrar`, que es el formulario. Si el navegador se queda en `/admin/`
+mostrando un error del servidor y no ese formulario, el problema es de Apache —falta
+`mod_rewrite`— y no de la plataforma.
+
+**La contraseña no está guardada en ninguna parte.** En `evt_usuario` solo queda su hash
+Argon2id. Nadie —tampoco quien tenga acceso completo a la base de datos— puede leerla; sí se
+puede reemplazar por otra, que es lo que hacen el asistente y la herramienta de consola.
+
+**Los asistentes al evento no están en esa tabla.** `evt_usuario` es solo el equipo
+organizador. Quien se preregistra va a `evt_persona` y entra por correo con un código de un
+solo uso, sin contraseña.
+
+---
+
 ## 4. Si hay nginx por delante
 
 Plesk suele poner nginx como proxy de Apache. Dos consecuencias:
@@ -213,6 +239,39 @@ restauró no es una copia.
 ---
 
 ## 8. Problemas frecuentes
+
+### No puedo entrar al panel
+
+Empieza por saber en qué estado está la instalación. Por consola —en Plesk, **Acceso SSH**, o
+**Tareas programadas → Ejecutar un script PHP**:
+
+```bash
+php herramientas/cuenta.php estado
+```
+
+Responde qué hay y qué falta: el archivo de configuración, la conexión, las 16 tablas, cuántas
+cuentas administradoras activas existen, cuántos eventos, y el nombre exacto de la tabla donde
+viven las cuentas. Con eso, el caso es uno de estos cuatro:
+
+| Lo que dice el diagnóstico | Qué pasó | Cómo se arregla |
+|---|---|---|
+| `✕ cuentas administradoras activas: 0` | La instalación se interrumpió antes de crear la cuenta | El asistente se reabre solo en **modo reparación**: entra a `/cumbreAI/instalar`. O `cuenta.php crear` |
+| Hay cuenta, pero no recuerdas la contraseña | — | `php herramientas/cuenta.php clave --correo=…` |
+| Entra pero se queda pidiendo el código de seis dígitos | El segundo factor quedó en un teléfono que ya no está | `php herramientas/cuenta.php sin-2fa --correo=…` |
+| `✕ tablas` o `✕ conexión` | La base no es la que cree, o le falta el esquema | Revisa `config/config.php` y repite el asistente en modo **Actualizar** |
+
+Y dos cosas que **no** son el problema, aunque lo parezcan:
+
+- Que `/cumbreAI/admin/` no muestre un formulario. No debe: redirige a `/cumbreAI/admin/entrar`.
+- Que la contraseña no aparezca en ninguna tabla. Nunca aparece: se guarda en hash.
+
+Si no hay forma de ejecutar PHP por consola, todo lo anterior menos el diagnóstico se puede
+hacer desde el navegador: crea el archivo `config/permitir-reinstalar` con el administrador de
+archivos de Plesk, entra a `/cumbreAI/instalar`, elige el modo **Actualizar** —conserva los
+datos— y vuelve a dar los datos de la cuenta administradora en el paso 4. Borra
+`permitir-reinstalar` al terminar.
+
+### Otros
 
 **Todas las rutas dan 404 menos la portada.**
 Falta `mod_rewrite` o `AllowOverride` está en `None`. En Plesk: **Dominio → Configuración

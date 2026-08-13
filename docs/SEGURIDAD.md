@@ -24,8 +24,8 @@ escribió para eso.
 | Auditoría | Bitácora de solo inserción |
 | Cabeceras y exposición de archivos | En `.htaccess` y también desde PHP |
 
-Lo verifica `pruebas/extremo-a-extremo.php`: 98 comprobaciones sobre un servidor real, de
-las cuales 19 son específicamente de seguridad.
+Lo verifica `pruebas/extremo-a-extremo.php`: 122 comprobaciones sobre un servidor real, de
+las cuales 23 son específicamente de seguridad.
 
 ---
 
@@ -246,6 +246,38 @@ caracterización, no qué decía. Un filtro descarta cualquier clave que parezca
 documento o token antes de guardar, por si alguien pasa el formulario completo por comodidad.
 Verificado en las pruebas.
 
+### Credenciales durante la instalación
+
+Ninguna contraseña pasa por la cookie del asistente. La cookie lleva el estado del proceso
+firmado con HMAC, pero firmado no es cifrado: quien la capture puede leer lo que contiene.
+
+- **La de la base de datos** se escribe en `config/config.php` en cuanto la conexión se
+  comprueba, con la instalación marcada como no terminada. Es donde va a acabar de todos
+  modos: una carpeta bloqueada por el servidor y un archivo `.php` que, aunque llegara a
+  servirse como estático, no mostraría nada.
+- **La del administrador** se convierte a hash Argon2id en el paso 4 y solo viaja así.
+
+La prueba de extremo a extremo lo verifica leyendo la cookie después de cada paso, no solo al
+final: mirar únicamente el estado final daba por bueno un secreto que sí estuvo ahí
+durante tres pasos.
+
+### La instalación no puede dejar la plataforma sin puerta
+
+El paso final escribe la marca de «instalado» **al final**, cuando ya existen la cuenta
+administradora y el evento. El orden inverso —el que tenía— convertía cualquier fallo
+posterior en un callejón sin salida: el asistente respondía «ya está instalada» y el acceso
+del equipo «correo o contraseña incorrectos», sin ninguna forma de entrar ni de reintentar.
+
+Como red de seguridad, `App\Nucleo\Instalacion` comprueba que haya tablas y al menos una
+cuenta administradora activa. Si no la hay, el asistente se reabre en modo reparación. La
+barrera no se pierde: el paso 2 sigue exigiendo las credenciales de la base de datos, que
+quien llega de fuera no tiene, y en ese modo no se ofrece la opción que borra tablas. En
+cuanto existe una cuenta, el asistente vuelve a cerrarse solo.
+
+Que el acceso del equipo diga «todavía no hay ninguna cuenta» es deliberado y no contradice
+la regla de no revelar qué cuentas existen: no se está diciendo nada de una cuenta concreta,
+el estado ya es visible desde fuera, y sin decirlo no hay salida.
+
 ### Cabeceras
 
 Se envían desde PHP **y** desde `.htaccess`. En Plesk es común que `mod_headers` no esté
@@ -273,8 +305,13 @@ verdad detiene un XSS.
 
 El paso 2 abre una conexión MySQL al servidor que se le indique, lo que permitiría sondear
 máquinas de la red interna. Está acotado porque la ruta solo existe **antes** de que haya
-configuración: apenas se escribe `config/config.php`, responde 403. Quien pueda ejecutar el
-instalador ya tiene control total sobre la instalación de todos modos.
+una instalación utilizable: apenas hay configuración y una cuenta administradora, responde
+403. Quien pueda ejecutar el instalador ya tiene control total sobre la instalación de todos
+modos.
+
+La excepción es el modo reparación, que mantiene la ruta abierta mientras no haya ninguna
+cuenta con la que entrar. Es una ventana que se cierra sola en cuanto se crea la cuenta, y la
+alternativa —cerrarla igual— deja la plataforma inaccesible para siempre, que es peor.
 
 **Recomendación:** completar la instalación en cuanto se suban los archivos, no dejarla a
 medias.
@@ -315,7 +352,7 @@ conviene decirlo con claridad en la pantalla de privacidad.
 ## 6. Verificación
 
 ```bash
-php pruebas/extremo-a-extremo.php      # 98 comprobaciones, 19 de seguridad
+php pruebas/extremo-a-extremo.php      # 122 comprobaciones, 23 de seguridad
 php pruebas/qr-php-contra-js.php       # el generador de QR del servidor
 python3 pruebas/qr-contra-referencia.py
 node pruebas/pantallas.js              # escritorio
@@ -336,6 +373,10 @@ Lo que comprueban las de seguridad, concretamente:
 - Un token de QR inventado no revela nada.
 - Sin sesión, el QR del carnet no dice de quién es.
 - El documento se guarda cifrado y no en claro.
+- La contraseña de la base sale de la cookie del asistente en el paso 2, no al final.
+- La del administrador no viaja en claro entre pasos: viaja su hash.
+- La contraseña del administrador queda en hash en la tabla, no en claro.
+- El modo reparación no ofrece borrar tablas, y no borra datos aunque se envíe a mano.
 
 ---
 

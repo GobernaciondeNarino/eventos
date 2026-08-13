@@ -24,12 +24,35 @@ use App\Nucleo\Url;
  */
 final class Publico
 {
+    /**
+     * No hay ningún evento que mostrar.
+     *
+     * Es un 503 legítimo —el servicio no está disponible todavía—, pero un 503
+     * a secas deja a quien administra sin saber qué hacer, y a quien visita con
+     * un botón «Ir al inicio» que devuelve a esta misma pantalla. Se dice cuál
+     * es el siguiente paso según lo que falte de verdad.
+     */
+    private function sinEvento(): never
+    {
+        if (!\App\Nucleo\Instalacion::hayAdministrador()) {
+            Respuesta::error(503, 'La instalación quedó a medias',
+                'Las tablas están creadas pero no hay ninguna cuenta administradora, así que '
+                . 'tampoco hay quién publique un evento. El asistente de instalación volvió a '
+                . 'abrirse para terminarla.',
+                [['texto' => 'Terminar la instalación', 'url' => u('/instalar'), 'principal' => true]]);
+        }
+
+        Respuesta::error(503, 'Todavía no hay un evento abierto',
+            'La plataforma está instalada pero el equipo aún no ha publicado ningún evento. '
+            . 'Se crea desde el panel, en «Eventos».',
+            [['texto' => 'Entrar al panel', 'url' => u('/admin/entrar'), 'principal' => true]]);
+    }
+
     public function inicio(Peticion $peticion): void
     {
         $evento = App::eventoActivo();
         if (!$evento) {
-            Respuesta::error(503, 'Todavía no hay un evento abierto',
-                'La plataforma está instalada pero el equipo aún no ha publicado ningún evento.');
+            $this->sinEvento();
         }
 
         Respuesta::vista('publico/inicio', [
@@ -47,7 +70,7 @@ final class Publico
     {
         $evento = App::eventoActivo();
         if (!$evento) {
-            Respuesta::error(503, 'No hay un evento abierto', 'Vuelve más tarde.');
+            $this->sinEvento();
         }
 
         $yo = Guardia::personaActual();
@@ -262,7 +285,7 @@ final class Publico
     {
         $evento = App::eventoActivo();
         if (!$evento) {
-            Respuesta::error(503, 'No hay un evento abierto', 'Vuelve más tarde.');
+            $this->sinEvento();
         }
 
         $jornadas = Evento::jornadas((int) $evento['id']);
