@@ -1,0 +1,32 @@
+# Configuración con credenciales: la escribe el asistente de instalación y
+# nunca debe llegar al repositorio.
+/config/config.php
+/config/*.local.php
+
+# Subidas de cada instalación: logos, fotos de carnet, respaldos.
+/almacen/
+
+# Salidas de las pruebas
+/pruebas/capturas/
+*.png.tmp
+
+# Volcados y respaldos de base de datos
+*.sql.gz
+*.dump
+
+# Sistema y editores
+.DS_Store
+Thumbs.db
+*.swp
+*~
+.idea/
+.vscode/
+
+# Node: solo se usa para herramientas y pruebas, nunca en tiempo de ejecución
+node_modules/
+npm-debug.log*
+
+# Python de las herramientas
+__pycache__/
+*.pyc
+.venv/

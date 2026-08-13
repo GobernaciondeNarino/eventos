@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark light">
+<meta name="robots" content="noindex, nofollow">
+<title>Panel · Plataforma de Eventos TIC</title>
+<link rel="icon" href="../assets/img/favicon.svg">
+<link rel="stylesheet" href="../assets/fonts/fuentes.css">
+<link rel="stylesheet" href="../assets/css/tokens.css">
+<link rel="stylesheet" href="../assets/css/base.css">
+<link rel="stylesheet" href="../assets/css/components.css">
+<link rel="stylesheet" href="../assets/css/print.css">
+<script src="../assets/js/tema.js"></script>
+</head>
+<body data-pantalla="panel" data-base="../" data-titulo="Panel">
+
+<div class="app">
+  <div class="app__body">
+    <main class="main" id="contenido">
+      <div class="view view--wide stack stack--4">
+
+        <div class="row row--between" style="align-items:flex-end">
+          <div class="stack stack--2">
+            <span class="kicker">Administrador</span>
+            <h1>Panel del evento</h1>
+            <p class="help" id="subtitulo"></p>
+          </div>
+          <div class="row">
+            <a class="btn btn--sm" href="qr-dias.html">Código del día</a>
+            <a class="btn btn--sm btn--primary" href="escaner.html">Escanear carnet</a>
+          </div>
+        </div>
+
+        <div class="grid-4" id="kpis"></div>
+
+        <div class="split" style="align-items:start">
+          <div class="stack stack--4">
+
+            <div class="card">
+              <div class="card__head">
+                <span>Ingresos por jornada</span>
+                <span class="muted" id="pie-grafico"></span>
+              </div>
+              <div class="card__body stack stack--4" id="grafico"></div>
+            </div>
+
+            <div class="card">
+              <div class="card__head">
+                <span>Cobertura territorial</span>
+                <span class="muted">Municipios con al menos un registro</span>
+              </div>
+              <div class="card__body stack stack--3" id="municipios"></div>
+            </div>
+
+          </div>
+
+          <div class="stack stack--3 is-sticky">
+            <div class="card">
+              <div class="card__head"><span>Pendientes</span></div>
+              <div class="card__body stack stack--3" id="pendientes"></div>
+            </div>
+
+            <div class="card">
+              <div class="card__head"><span>Bitácora</span></div>
+              <div class="card__body--tight" id="bitacora"></div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </main>
+  </div>
+</div>
+
+<script src="../assets/js/ui.js"></script>
+<script src="../assets/js/datos-demo.js"></script>
+<script src="../assets/js/qr.js"></script>
+<script src="../assets/js/layout.js"></script>
+<script src="../assets/js/paginas/panel.js"></script>
+</body>
+</html>

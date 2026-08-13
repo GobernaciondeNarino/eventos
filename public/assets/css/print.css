@@ -1,0 +1,72 @@
+/* =========================================================================
+   Impresión — dos usos reales:
+   1. El carnet, cuando el asistente prefiere el plástico al celular.
+   2. El pliego del código QR del día, que se pega en la entrada.
+   Todo lo demás (navegación, botones, avisos) se oculta.
+   ========================================================================= */
+
+@media print {
+  @page { margin: 12mm; }
+
+  .sidebar, .topbar, .tabbar, .sheet, .toast, .modal,
+  .btn, .no-print, .card__head .btn { display: none !important; }
+
+  body {
+    background: #FFFFFF !important;
+    color: #000000 !important;
+  }
+
+  .app, .main, .view { display: block; padding: 0; margin: 0; max-width: none; }
+
+  /* ---- Carnet ------------------------------------------------------------ */
+  /* Se imprimen las dos caras, una junto a la otra, a tamaño real (54×86 mm
+     es el estándar CR80 vertical; aquí se usa 60×95 mm con sangrado). */
+  .carnet-wrap { display: block; }
+  .carnet-clip { display: none; }
+
+  .carnet {
+    width: auto; height: auto; perspective: none;
+    page-break-inside: avoid; break-inside: avoid;
+  }
+  .carnet__inner { transform: none !important; transform-style: flat; position: static; display: flex; gap: 8mm; }
+  .carnet.is-flipped .carnet__inner { transform: none !important; }
+
+  .carnet__face {
+    position: static; transform: none !important;
+    backface-visibility: visible; -webkit-backface-visibility: visible;
+    width: 60mm; height: 95mm;
+    background: #FFFFFF !important;
+    border: .3mm solid #000000 !important;
+    box-shadow: none !important;
+    clip-path: none;
+    padding: 4mm;
+    gap: 3mm;
+  }
+  .carnet__face::before { border-color: #999999 !important; inset: 2mm; }
+  .carnet__k, .carnet__qrcap, .brandtext__sub { color: #555555 !important; }
+  .carnet__v, .carnet__rol, .brandtext__name, .carnet__code { color: #000000 !important; }
+  .carnet__photo > div { height: 34mm; }
+  .barcode span { background: #000000 !important; }
+  .brandmark { border-color: #000000 !important; color: #000000 !important; background: none !important; }
+
+  /* ---- Pliego del QR del día --------------------------------------------- */
+  .print-sheet { display: block !important; page-break-after: always; text-align: center; }
+  .print-sheet__title { font-size: 28pt; color: #000000 !important; margin-bottom: 4mm; }
+  .print-sheet__sub { font-size: 12pt; color: #333333 !important; margin-bottom: 8mm; }
+  .print-sheet .qr { width: 120mm; margin: 0 auto; padding: 6mm; border: .3mm solid #000000; }
+  .print-sheet__token { font-size: 11pt; letter-spacing: .2em; margin-top: 6mm; color: #333333 !important; }
+
+  .qr-frame, .carnet__qrbox { border-color: #000000 !important; background: #FFFFFF !important; }
+
+  /* Nada de la interfaz oscura debe manchar el papel. */
+  .card, .kpi, .table, .phone, .phone__screen, .contact, .talk {
+    background: #FFFFFF !important;
+    border-color: #BBBBBB !important;
+    box-shadow: none !important;
+    color: #000000 !important;
+  }
+  a[href]::after { content: ""; }
+}
+
+/* El pliego imprimible no se ve en pantalla. */
+.print-sheet { display: none; }

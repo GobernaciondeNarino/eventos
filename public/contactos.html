@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark light">
+<title>Contactos · Plataforma de Eventos TIC</title>
+<link rel="icon" href="assets/img/favicon.svg">
+<link rel="stylesheet" href="assets/fonts/fuentes.css">
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/base.css">
+<link rel="stylesheet" href="assets/css/components.css">
+<link rel="stylesheet" href="assets/css/print.css">
+<script src="assets/js/tema.js"></script>
+</head>
+<body data-pantalla="contactos" data-base="./" data-titulo="Contactos">
+
+<div class="app">
+  <div class="app__body">
+    <main class="main" id="contenido">
+      <div class="view view--medium split" style="align-items:start">
+
+        <div class="stack stack--4">
+          <div class="stack stack--2">
+            <span class="kicker">Red del evento</span>
+            <h1>Contactos</h1>
+            <p class="lead" style="max-width:56ch">
+              Al escanear el carnet de otra persona —o cuando ella escanea el tuyo— se
+              intercambian cuatro datos: nombre, entidad, correo y teléfono.
+            </p>
+          </div>
+
+          <div class="stack stack--2" id="lista-contactos"></div>
+
+          <div class="row">
+            <button class="btn btn--primary" type="button" id="escanear-carnet">Escanear un carnet</button>
+            <button class="btn" type="button" id="exportar-vcf">Exportar .vcf</button>
+            <button class="btn" type="button" id="mi-qr">Mostrar mi QR</button>
+          </div>
+        </div>
+
+        <div class="stack stack--3 is-sticky">
+          <div class="card">
+            <div class="card__head"><span>Privacidad</span></div>
+            <div class="card__body stack stack--3">
+              <p class="help">
+                Solo se comparten los cuatro campos visibles. La identificación y la
+                caracterización nunca viajan en el QR: quedan guardadas y solo las ve la
+                administración del evento.
+              </p>
+              <hr class="divider">
+              <div class="row row--between">
+                <span class="mono" style="font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--c-text)">Compartir teléfono</span>
+                <button class="switch" type="button" id="switch-tel" aria-checked="true"
+                        aria-label="Compartir teléfono al intercambiar contacto"><span></span></button>
+              </div>
+              <div class="row row--between">
+                <span class="mono" style="font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--c-text)">Aparecer en el directorio</span>
+                <button class="switch" type="button" id="switch-directorio" aria-checked="false"
+                        aria-label="Aparecer en el directorio del evento"><span></span></button>
+              </div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card__head"><span>Resumen</span></div>
+            <div class="card__body--tight" id="resumen-contactos"></div>
+          </div>
+        </div>
+
+      </div>
+    </main>
+  </div>
+</div>
+
+<script src="assets/js/ui.js"></script>
+<script src="assets/js/datos-demo.js"></script>
+<script src="assets/js/qr.js"></script>
+<script src="assets/js/layout.js"></script>
+<script src="assets/js/paginas/contactos.js"></script>
+</body>
+</html>

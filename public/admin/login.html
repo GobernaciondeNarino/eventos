@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark light">
+<meta name="robots" content="noindex, nofollow">
+<title>Acceso administrativo · Plataforma de Eventos TIC</title>
+<link rel="icon" href="../assets/img/favicon.svg">
+<link rel="stylesheet" href="../assets/fonts/fuentes.css">
+<link rel="stylesheet" href="../assets/css/tokens.css">
+<link rel="stylesheet" href="../assets/css/base.css">
+<link rel="stylesheet" href="../assets/css/components.css">
+<script src="../assets/js/tema.js"></script>
+</head>
+<body data-titulo="Acceso administrativo">
+
+<main class="installer" id="contenido">
+  <div class="installer__inner" style="max-width:440px;justify-content:center;min-height:80vh">
+
+    <div class="stack stack--3" style="align-items:center;text-align:center">
+      <span class="brandmark brandmark--lg" id="marca" aria-hidden="true"></span>
+      <h1 style="font-size:26px" id="titulo-evento"></h1>
+      <span class="kicker">Acceso administrativo</span>
+    </div>
+
+    <form class="card" id="form-login" novalidate>
+      <div class="card__head"><span>Identifícate</span></div>
+      <div class="card__body stack stack--4">
+
+        <div class="field">
+          <label class="label" for="usuario">Correo institucional</label>
+          <input class="input" id="usuario" type="email" autocomplete="username"
+                 placeholder="nombre@narino.gov.co" required>
+          <span class="error hidden" id="usuario-error"></span>
+        </div>
+
+        <div class="field">
+          <label class="label" for="clave">Contraseña</label>
+          <input class="input" id="clave" type="password" autocomplete="current-password" required>
+          <span class="error hidden" id="clave-error"></span>
+        </div>
+
+        <div class="field hidden" id="campo-otp">
+          <label class="label" for="otp">Código de verificación (6 dígitos)</label>
+          <input class="input input--mono" id="otp" inputmode="numeric" maxlength="6"
+                 autocomplete="one-time-code" placeholder="000000">
+          <span class="help">Llega a la aplicación de autenticación registrada para tu cuenta.</span>
+          <span class="error hidden" id="otp-error"></span>
+        </div>
+
+        <button class="btn btn--primary btn--block btn--lg" type="submit" id="entrar">Entrar</button>
+
+        <p class="help">
+          Los accesos quedan registrados en la bitácora con fecha, hora y dirección IP.
+          Tras cinco intentos fallidos la cuenta se bloquea temporalmente.
+        </p>
+      </div>
+    </form>
+
+    <div class="notice notice--warn">
+      <span class="notice__icon" aria-hidden="true">▲</span>
+      <span>
+        <strong>Prototipo de interfaz.</strong> Esta pantalla todavía no autentica contra
+        el servidor: cualquier dato entra. La verificación real, el segundo factor y el
+        bloqueo por intentos se implementan en la fase funcional.
+      </span>
+    </div>
+
+    <p class="text-center"><a href="../index.html" class="mono" style="font-size:11px;letter-spacing:.12em;text-transform:uppercase">‹ Volver al preregistro</a></p>
+
+  </div>
+</main>
+
+<script src="../assets/js/ui.js"></script>
+<script src="../assets/js/datos-demo.js"></script>
+<script src="../assets/js/paginas/login.js"></script>
+</body>
+</html>

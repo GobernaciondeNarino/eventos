@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark light">
+<title>Mi carnet · Plataforma de Eventos TIC</title>
+<link rel="icon" href="assets/img/favicon.svg">
+<link rel="stylesheet" href="assets/fonts/fuentes.css">
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/base.css">
+<link rel="stylesheet" href="assets/css/components.css">
+<link rel="stylesheet" href="assets/css/print.css">
+<script src="assets/js/tema.js"></script>
+</head>
+<body data-pantalla="carnet" data-base="./" data-titulo="Mi carnet">
+
+<div class="app">
+  <div class="app__body">
+    <main class="main" id="contenido">
+      <div class="view view--medium split--reverse">
+
+        <!-- ================= La credencial ================= -->
+        <div class="carnet-wrap">
+          <div class="carnet-clip" aria-hidden="true"></div>
+
+          <button class="carnet" id="carnet" type="button" data-rol="participante"
+                  aria-label="Carnet digital. Presiona para ver el reverso.">
+            <div class="carnet__inner">
+
+              <!-- --------- Anverso --------- -->
+              <div class="carnet__face">
+                <div class="carnet__head">
+                  <span class="brandmark brandmark--lg" id="carnet-marca" aria-hidden="true"></span>
+                  <span class="brandtext">
+                    <span class="brandtext__name" id="carnet-evento"></span>
+                    <span class="brandtext__sub" id="carnet-dependencia"></span>
+                  </span>
+                </div>
+
+                <div class="carnet__photo">
+                  <div id="carnet-foto">
+                    <span class="carnet__photo-empty">Foto del participante</span>
+                  </div>
+                </div>
+
+                <div class="carnet__rol" id="carnet-rol">PARTICIPANTE</div>
+
+                <div class="carnet__fields" id="carnet-campos"></div>
+
+                <div class="carnet__ticks" aria-hidden="true">
+                  <span style="width:26px"></span><span style="width:14px"></span>
+                  <span style="width:32px"></span><span style="width:18px"></span>
+                  <span style="width:24px"></span><span style="width:11px"></span>
+                  <span style="width:29px"></span>
+                </div>
+              </div>
+
+              <!-- --------- Reverso --------- -->
+              <div class="carnet__face carnet__face--back">
+                <div class="carnet__backhead">
+                  <span class="brandtext__name" id="carnet-evento-2"></span>
+                  <span class="brandtext__sub">Credencial digital · <span id="carnet-id"></span></span>
+                </div>
+
+                <div class="carnet__qrbox">
+                  <div id="carnet-qr"></div>
+                  <span class="carnet__qrcap">Escanear para acceso / contacto</span>
+                </div>
+
+                <div class="row row--between" style="padding:0 8px">
+                  <span class="stack" style="gap:3px">
+                    <span class="carnet__v" style="font-size:14px" id="carnet-nombre-2"></span>
+                    <span class="brandtext__sub" id="carnet-entidad-2"></span>
+                  </span>
+                  <span class="carnet__chip" aria-hidden="true"></span>
+                </div>
+
+                <div class="carnet__foot">
+                  <div class="barcode" id="carnet-barras" aria-hidden="true"></div>
+                  <span class="carnet__code" id="carnet-doc"></span>
+                </div>
+              </div>
+
+            </div>
+          </button>
+
+          <div class="row no-print">
+            <button class="btn btn--sm" type="button" id="voltear">Ver el reverso</button>
+            <button class="btn btn--sm" type="button" id="imprimir">Imprimir</button>
+          </div>
+        </div>
+
+        <!-- ================= Explicación y acciones ================= -->
+        <div class="stack stack--4">
+          <span class="kicker">Credencial emitida</span>
+          <h1>Tu carnet digital</h1>
+          <p class="lead">
+            Enviado a <span class="mono accent" id="correo-envio"></span>. Toca el carnet para
+            ver el reverso: ese QR sirve para que un organizador registre tu ingreso si no
+            alcanzas a escanear el de la puerta, y para intercambiar contacto con otros asistentes.
+          </p>
+
+          <div class="card">
+            <div class="card__head"><span>Resumen del registro</span></div>
+            <div class="card__body--tight" id="resumen"></div>
+          </div>
+
+          <div class="card no-print">
+            <div class="card__head"><span>Vista por rol</span></div>
+            <div class="card__body stack stack--3">
+              <p class="help">
+                El mismo carnet cambia de color y de rótulo según el perfil. Así se distingue
+                de lejos quién es organizador, quién expone y quién visita.
+              </p>
+              <div class="row" id="roles" role="group" aria-label="Rol de la credencial"></div>
+            </div>
+          </div>
+
+          <div class="card no-print">
+            <div class="card__head"><span>Qué viaja en el QR</span></div>
+            <div class="card__body stack stack--3">
+              <p class="help">
+                El código no contiene datos personales: solo un identificador que la
+                plataforma resuelve. Si alguien fotografía tu carnet, no obtiene tu
+                identificación ni tu caracterización.
+              </p>
+              <div class="sql-preview" id="qr-contenido" style="max-height:none"></div>
+              <hr class="divider">
+              <p class="help">
+                <strong>Mientras esto es un prototipo</strong>, lo que escribes en el
+                formulario se guarda solo en este navegador para poder recorrer las
+                pantallas. No viaja a ningún servidor. Si probaste con datos reales,
+                bórralos aquí.
+              </p>
+              <button class="btn btn--sm btn--danger" type="button" id="borrar-datos">
+                Borrar mis datos de prueba
+              </button>
+            </div>
+          </div>
+
+          <div class="row no-print">
+            <a class="btn btn--primary" href="checkin.html">Registrar mi ingreso</a>
+            <a class="btn" href="contactos.html">Mis contactos</a>
+            <a class="btn" href="agenda.html">Ver agenda</a>
+          </div>
+        </div>
+
+      </div>
+    </main>
+  </div>
+</div>
+
+<script src="assets/js/ui.js"></script>
+<script src="assets/js/datos-demo.js"></script>
+<script src="assets/js/qr.js"></script>
+<script src="assets/js/layout.js"></script>
+<script src="assets/js/paginas/carnet.js"></script>
+</body>
+</html>

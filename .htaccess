@@ -1,0 +1,22 @@
+# =========================================================================
+# Red de seguridad.
+#
+# La raíz del proyecto NO debería ser la raíz web: lo correcto es apuntar el
+# dominio a public/. Pero en varios alojamientos compartidos el documento raíz
+# es fijo y el proyecto termina colgando de él. Si eso pasa, este archivo evita
+# que queden expuestos el archivo de configuración, la documentación interna,
+# los respaldos y el código de la aplicación.
+#
+# Si tu alojamiento sí permite apuntar el dominio a public/, hazlo: esto es el
+# segundo cinturón, no el primero.
+# =========================================================================
+
+<IfModule mod_authz_core.c>
+    Require all denied
+</IfModule>
+<IfModule !mod_authz_core.c>
+    Order deny,allow
+    Deny from all
+</IfModule>
+
+# public/ trae su propio .htaccess y vuelve a permitir el acceso.

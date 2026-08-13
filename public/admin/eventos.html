@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark light">
+<meta name="robots" content="noindex, nofollow">
+<title>Eventos · Plataforma de Eventos TIC</title>
+<link rel="icon" href="../assets/img/favicon.svg">
+<link rel="stylesheet" href="../assets/fonts/fuentes.css">
+<link rel="stylesheet" href="../assets/css/tokens.css">
+<link rel="stylesheet" href="../assets/css/base.css">
+<link rel="stylesheet" href="../assets/css/components.css">
+<link rel="stylesheet" href="../assets/css/print.css">
+<script src="../assets/js/tema.js"></script>
+</head>
+<body data-pantalla="admin-eventos" data-base="../" data-titulo="Eventos">
+
+<div class="app">
+  <div class="app__body">
+    <main class="main" id="contenido">
+      <div class="view view--wide stack stack--4">
+
+        <div class="row row--between" style="align-items:flex-end">
+          <div class="stack stack--2">
+            <span class="kicker">Administrador</span>
+            <h1>Eventos de la Secretaría</h1>
+            <p class="help">
+              La plataforma sirve a varios eventos a la vez. Cada uno tiene su propia
+              identidad visual, sus jornadas, sus códigos y sus registros.
+            </p>
+          </div>
+          <button class="btn btn--sm btn--primary" type="button" id="nuevo">Crear evento</button>
+        </div>
+
+        <div class="table">
+          <div class="table__scroll">
+            <div class="table__grid" style="min-width:760px">
+              <div class="table__head cols-eventos">
+                <span>Evento</span><span>Inicio</span><span>Jornadas</span>
+                <span>Registros</span><span>Estado</span>
+              </div>
+              <div id="filas"></div>
+            </div>
+          </div>
+          <div class="table__foot"><span id="conteo"></span><span>El evento activo es el que ven los asistentes</span></div>
+        </div>
+
+        <div class="card">
+          <div class="card__head"><span>Qué se copia al duplicar un evento</span></div>
+          <div class="card__body grid-3" id="duplicado"></div>
+        </div>
+
+      </div>
+    </main>
+  </div>
+</div>
+
+<script src="../assets/js/ui.js"></script>
+<script src="../assets/js/datos-demo.js"></script>
+<script src="../assets/js/qr.js"></script>
+<script src="../assets/js/layout.js"></script>
+<script src="../assets/js/paginas/eventos.js"></script>
+</body>
+</html>

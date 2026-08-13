@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark light">
+<meta name="robots" content="noindex, nofollow">
+<title>Instalación · Plataforma de Eventos TIC</title>
+<link rel="icon" href="../assets/img/favicon.svg">
+<link rel="stylesheet" href="../assets/fonts/fuentes.css">
+<link rel="stylesheet" href="../assets/css/tokens.css">
+<link rel="stylesheet" href="../assets/css/base.css">
+<link rel="stylesheet" href="../assets/css/components.css">
+<script src="../assets/js/tema.js"></script>
+</head>
+<body data-titulo="Instalación">
+
+<a class="skip-link" href="#contenido">Saltar al contenido</a>
+
+<main class="installer" id="contenido">
+  <div class="installer__inner">
+
+    <header class="stack stack--2">
+      <div class="row" style="gap:12px">
+        <span class="brandmark brandmark--lg" aria-hidden="true">E</span>
+        <div class="stack" style="gap:2px">
+          <span class="brandtext__name" style="font-size:15px">Plataforma de Eventos TIC</span>
+          <span class="brandtext__sub">Asistente de instalación · versión 1.0</span>
+        </div>
+      </div>
+    </header>
+
+    <nav class="wizard-steps" id="pasos" aria-label="Pasos de la instalación"></nav>
+
+    <!-- =============== Paso 1: requisitos =============== -->
+    <section class="stack stack--4" data-paso="1">
+      <div class="stack stack--2">
+        <span class="kicker">Paso 1 de 6</span>
+        <h1>Comprobación del servidor</h1>
+        <p class="lead">
+          Antes de tocar la base de datos, el asistente verifica que el servidor cumpla lo
+          mínimo. Si algo falla aquí, la instalación no continúa.
+        </p>
+      </div>
+
+      <div class="card">
+        <div class="card__head">
+          <span>Requisitos</span>
+          <button class="btn btn--sm" type="button" id="revisar-otra-vez">Volver a comprobar</button>
+        </div>
+        <div class="card__body">
+          <div class="check-list" id="requisitos"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card__head"><span>Permisos de escritura</span></div>
+        <div class="card__body">
+          <div class="check-list" id="permisos"></div>
+        </div>
+      </div>
+
+      <div class="row row--end">
+        <button class="btn btn--primary" type="button" data-siguiente="2">Continuar</button>
+      </div>
+    </section>
+
+    <!-- =============== Paso 2: base de datos =============== -->
+    <section class="stack stack--4 hidden" data-paso="2">
+      <div class="stack stack--2">
+        <span class="kicker">Paso 2 de 6</span>
+        <h1>Conexión a la base de datos</h1>
+        <p class="lead">
+          Estos datos los entrega el proveedor de alojamiento. El asistente los guarda en
+          <span class="mono accent">config/config.php</span>, fuera de la carpeta pública.
+        </p>
+      </div>
+
+      <form class="card" id="form-bd" novalidate>
+        <div class="card__head"><span>Parámetros de conexión</span></div>
+        <div class="card__body stack stack--4">
+          <div class="grid-2">
+            <div class="field">
+              <label class="label" for="bd-host">Servidor</label>
+              <input class="input input--mono" id="bd-host" value="localhost">
+              <span class="help">Normalmente <span class="mono">localhost</span>.</span>
+            </div>
+            <div class="field">
+              <label class="label" for="bd-puerto">Puerto</label>
+              <input class="input input--mono" id="bd-puerto" value="3306" inputmode="numeric">
+            </div>
+          </div>
+
+          <div class="grid-2">
+            <div class="field">
+              <label class="label" for="bd-nombre">Nombre de la base de datos</label>
+              <input class="input input--mono" id="bd-nombre" placeholder="eventos_tic">
+              <span class="error hidden" id="bd-nombre-error"></span>
+            </div>
+            <div class="field">
+              <label class="label" for="bd-usuario">Usuario</label>
+              <input class="input input--mono" id="bd-usuario" placeholder="eventos_app" autocomplete="username">
+              <span class="error hidden" id="bd-usuario-error"></span>
+            </div>
+          </div>
+
+          <div class="grid-2">
+            <div class="field">
+              <label class="label" for="bd-clave">Contraseña</label>
+              <input class="input" id="bd-clave" type="password" autocomplete="new-password">
+            </div>
+            <div class="field">
+              <label class="label" for="bd-prefijo">Prefijo de tablas</label>
+              <input class="input input--mono" id="bd-prefijo" value="evt_">
+              <span class="help">Permite compartir la base con otras aplicaciones.</span>
+              <span class="error hidden" id="bd-prefijo-error"></span>
+            </div>
+          </div>
+
+          <div class="notice">
+            <span class="notice__icon" aria-hidden="true">◆</span>
+            <span>
+              Usa un usuario dedicado con permisos solo sobre esta base de datos.
+              No uses <span class="mono">root</span>: si la aplicación se ve comprometida,
+              el daño queda acotado a estas tablas.
+            </span>
+          </div>
+
+          <div class="row">
+            <button class="btn" type="button" id="probar-conexion">Probar conexión</button>
+            <span id="estado-conexion" class="help mono"></span>
+          </div>
+        </div>
+      </form>
+
+      <div class="row row--between">
+        <button class="btn" type="button" data-siguiente="1">Atrás</button>
+        <button class="btn btn--primary" type="button" data-siguiente="3">Continuar</button>
+      </div>
+    </section>
+
+    <!-- =============== Paso 3: esquema =============== -->
+    <section class="stack stack--4 hidden" data-paso="3">
+      <div class="stack stack--2">
+        <span class="kicker">Paso 3 de 6</span>
+        <h1>Tablas de la aplicación</h1>
+        <p class="lead">
+          El asistente compara lo que hay en la base con lo que la versión 1.0 necesita, y
+          propone un plan. Nada se ejecuta hasta que lo confirmes.
+        </p>
+      </div>
+
+      <div class="card">
+        <div class="card__head">
+          <span>Modo de instalación</span>
+        </div>
+        <div class="card__body stack stack--3">
+          <div class="stack stack--2" id="modos"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card__head">
+          <span>Plan de cambios</span>
+          <span class="muted" id="resumen-plan"></span>
+        </div>
+        <div class="card__body">
+          <div id="plan"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card__head">
+          <span>SQL que se va a ejecutar</span>
+          <button class="btn btn--sm" type="button" id="copiar-sql">Copiar</button>
+        </div>
+        <div class="card__body" style="padding:0">
+          <pre class="sql-preview" id="sql"></pre>
+        </div>
+      </div>
+
+      <div class="notice notice--warn" id="aviso-destructivo">
+        <span class="notice__icon" aria-hidden="true">▲</span>
+        <span id="texto-destructivo"></span>
+      </div>
+
+      <div class="row row--between">
+        <button class="btn" type="button" data-siguiente="2">Atrás</button>
+        <button class="btn btn--primary" type="button" data-siguiente="4">Aplicar y continuar</button>
+      </div>
+    </section>
+
+    <!-- =============== Paso 4: cuenta administradora =============== -->
+    <section class="stack stack--4 hidden" data-paso="4">
+      <div class="stack stack--2">
+        <span class="kicker">Paso 4 de 6</span>
+        <h1>Cuenta administradora</h1>
+        <p class="lead">La primera cuenta del sistema. Podrá crear el resto del equipo.</p>
+      </div>
+
+      <form class="card" id="form-admin" novalidate>
+        <div class="card__head"><span>Datos de la cuenta</span></div>
+        <div class="card__body stack stack--4">
+          <div class="grid-2">
+            <div class="field">
+              <label class="label" for="ad-nombre">Nombre completo</label>
+              <input class="input" id="ad-nombre" autocomplete="name">
+              <span class="error hidden" id="ad-nombre-error"></span>
+            </div>
+            <div class="field">
+              <label class="label" for="ad-correo">Correo institucional</label>
+              <input class="input" id="ad-correo" type="email" autocomplete="username">
+              <span class="error hidden" id="ad-correo-error"></span>
+            </div>
+          </div>
+
+          <div class="field">
+            <label class="label" for="ad-clave">Contraseña</label>
+            <input class="input" id="ad-clave" type="password" autocomplete="new-password">
+            <div class="progress" style="margin-top:6px"><div class="progress__bar" id="fuerza" style="width:0"></div></div>
+            <span class="help" id="fuerza-texto">Mínimo 12 caracteres. Una frase larga es más segura que un símbolo raro.</span>
+            <span class="error hidden" id="ad-clave-error"></span>
+          </div>
+
+          <div class="field">
+            <label class="label" for="ad-clave2">Repite la contraseña</label>
+            <input class="input" id="ad-clave2" type="password" autocomplete="new-password">
+            <span class="error hidden" id="ad-clave2-error"></span>
+          </div>
+
+          <label class="row" style="align-items:flex-start;gap:11px;cursor:pointer">
+            <input type="checkbox" id="ad-2fa" checked style="margin-top:3px;width:18px;height:18px;accent-color:var(--c-accent)">
+            <span class="help" style="flex:1">
+              Exigir segundo factor a las cuentas administrativas (recomendado). Al primer
+              inicio de sesión se mostrará el código para la aplicación de autenticación.
+            </span>
+          </label>
+        </div>
+      </form>
+
+      <div class="row row--between">
+        <button class="btn" type="button" data-siguiente="3">Atrás</button>
+        <button class="btn btn--primary" type="button" data-siguiente="5">Continuar</button>
+      </div>
+    </section>
+
+    <!-- =============== Paso 5: primer evento =============== -->
+    <section class="stack stack--4 hidden" data-paso="5">
+      <div class="stack stack--2">
+        <span class="kicker">Paso 5 de 6</span>
+        <h1>Primer evento</h1>
+        <p class="lead">Se puede cambiar después desde el panel; esto solo evita empezar con la pantalla en blanco.</p>
+      </div>
+
+      <div class="card">
+        <div class="card__head"><span>Datos del evento</span></div>
+        <div class="card__body stack stack--4">
+          <div class="field">
+            <label class="label" for="ev-nombre">Nombre del evento</label>
+            <input class="input" id="ev-nombre" value="Semana TIC Nariño 2026">
+          </div>
+          <div class="grid-2">
+            <div class="field">
+              <label class="label" for="ev-dependencia">Dependencia</label>
+              <input class="input" id="ev-dependencia" value="Secretaría TIC, Innovación y Gobierno Abierto">
+            </div>
+            <div class="field">
+              <label class="label" for="ev-sede">Sede</label>
+              <input class="input" id="ev-sede" value="Centro de Convenciones, Pasto">
+            </div>
+          </div>
+          <div class="grid-2">
+            <div class="field">
+              <label class="label" for="ev-inicio">Fecha de inicio</label>
+              <input class="input" id="ev-inicio" type="date" value="2026-09-15">
+            </div>
+            <div class="field">
+              <label class="label" for="ev-dias">Número de jornadas</label>
+              <input class="input input--mono" id="ev-dias" type="number" min="1" max="10" value="3">
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card__head"><span>Identidad visual</span></div>
+        <div class="card__body stack stack--4">
+          <div class="field">
+            <span class="label">Paleta</span>
+            <div class="row" id="presets-install" role="group" aria-label="Paleta del evento"></div>
+          </div>
+          <div class="field">
+            <span class="label">Tipografía</span>
+            <div class="row" id="tipos-install" role="group" aria-label="Tipografía del evento"></div>
+          </div>
+          <p class="help">Se puede afinar color por color desde el panel de identidad una vez instalado.</p>
+        </div>
+      </div>
+
+      <div class="row row--between">
+        <button class="btn" type="button" data-siguiente="4">Atrás</button>
+        <button class="btn btn--primary" type="button" data-siguiente="6">Instalar</button>
+      </div>
+    </section>
+
+    <!-- =============== Paso 6: fin =============== -->
+    <section class="stack stack--4 hidden" data-paso="6">
+      <div class="stack stack--2">
+        <span class="kicker">Paso 6 de 6</span>
+        <h1>Instalación terminada</h1>
+      </div>
+
+      <div class="card">
+        <div class="card__head"><span>Resultado</span></div>
+        <div class="card__body">
+          <div class="check-list" id="resultado"></div>
+        </div>
+      </div>
+
+      <div class="notice notice--danger">
+        <span class="notice__icon" aria-hidden="true">▲</span>
+        <span>
+          <strong>Falta un paso manual.</strong> Elimina o renombra la carpeta
+          <span class="mono">public/install/</span>. Mientras exista y la instalación esté
+          marcada como completa, la aplicación se negará a arrancar por seguridad.
+        </span>
+      </div>
+
+      <div class="card">
+        <div class="card__head"><span>Siguientes pasos recomendados</span></div>
+        <div class="card__body">
+          <div class="steps" id="siguientes"></div>
+        </div>
+      </div>
+
+      <div class="row row--end">
+        <a class="btn" href="../index.html">Ver el sitio público</a>
+        <a class="btn btn--primary" href="../admin/login.html">Entrar al panel</a>
+      </div>
+    </section>
+
+    <p class="help text-center mono" style="font-size:11px">
+      Prototipo de interfaz — este asistente todavía no escribe en ninguna base de datos.
+    </p>
+
+  </div>
+</main>
+
+<script src="../assets/js/ui.js"></script>
+<script src="../assets/js/datos-demo.js"></script>
+<script src="../assets/js/esquema.js"></script>
+<script src="../assets/js/instalador.js"></script>
+</body>
+</html>

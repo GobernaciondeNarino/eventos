@@ -1,0 +1,198 @@
+/* =========================================================================
+   Plataforma de Eventos TIC — Tokens de diseño
+   Secretaría TIC, Innovación y Gobierno Abierto — Gobernación de Nariño
+   -------------------------------------------------------------------------
+   Todo lo que un evento puede personalizar (colores, tipografía, logo) vive
+   aquí como variable CSS. El backend (fase 2) solo tiene que emitir un
+   bloque <style> con los mismos nombres para repintar la plataforma entera.
+   Cada color se declara dos veces: en HEX (para usarlo directo) y como
+   triplete RGB (para poder componer transparencias con rgba()).
+   ========================================================================= */
+
+:root {
+  /* ---- Identidad del evento: paleta ------------------------------------ */
+  --c-brand: #0C2E3C;          /* barras, botones sólidos                  */
+  --c-brand-rgb: 12, 46, 60;
+  --c-accent: #35E0F5;         /* énfasis, bordes activos, focos           */
+  --c-accent-rgb: 53, 224, 245;
+  --c-bg: #050D15;             /* lienzo de la aplicación                  */
+  --c-bg-rgb: 5, 13, 21;
+  --c-surface: #08151F;        /* tarjetas y paneles                       */
+  --c-surface-rgb: 8, 21, 31;
+  --c-sunken: #05101A;         /* campos de formulario, huecos             */
+  --c-line: #1E4557;           /* bordes y separadores                     */
+  --c-line-rgb: 30, 69, 87;
+  --c-title: #E4F7FD;          /* encabezados                              */
+  --c-text: #89AEC0;           /* párrafos                                 */
+  --c-muted: #4E7285;          /* etiquetas, metadatos                     */
+  --c-on-brand: #E4F7FD;       /* texto sobre el color principal           */
+
+  /* ---- Estados (no configurables: semántica constante) ----------------- */
+  --c-ok: #7CF7C8;
+  --c-ok-rgb: 124, 247, 200;
+  --c-warn: #FFB84D;
+  --c-warn-rgb: 255, 184, 77;
+  --c-danger: #FF6B6B;
+  --c-danger-rgb: 255, 107, 107;
+
+  /* ---- Colores por rol de credencial ----------------------------------- */
+  --c-rol-participante: var(--c-accent);
+  --c-rol-visitante: #9BE7FF;
+  --c-rol-expositor: #FFB84D;
+  --c-rol-organizador: #7CF7C8;
+  --c-rol-prensa: #FF5FD1;
+
+  /* ---- Identidad del evento: tipografía -------------------------------- */
+  --f-display: 'Chakra Petch', 'Segoe UI', system-ui, sans-serif;
+  --f-body: 'IBM Plex Sans', system-ui, -apple-system, sans-serif;
+  --f-mono: 'IBM Plex Mono', ui-monospace, 'SFMono-Regular', Menlo, monospace;
+  --f-display-tracking: 0.04em;
+  --f-display-transform: uppercase;
+
+  /* ---- Escala tipográfica --------------------------------------------- */
+  --fs-micro: 9px;
+  --fs-mono-xs: 10px;
+  --fs-mono-sm: 11px;
+  --fs-sm: 12.5px;
+  --fs-base: 14.5px;
+  --fs-lead: 15.5px;
+  --fs-h3: 22px;
+  --fs-h2: 26px;
+  --fs-h1: 34px;
+  --fs-hero: clamp(30px, 4.4vw, 50px);
+
+  /* ---- Ritmo y forma --------------------------------------------------- */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 22px;
+  --sp-6: 32px;
+  --sp-7: 44px;
+  --radius: 3px;
+  --radius-lg: 16px;
+  --cut: polygon(0 0, 100% 0, 100% 94%, 94% 100%, 0 100%);
+  --cut-sm: polygon(0 0, 100% 0, 100% 72%, 72% 100%, 0 100%);
+
+  /* ---- Transparencias derivadas --------------------------------------- */
+  --a-04: rgba(var(--c-accent-rgb), .04);
+  --a-08: rgba(var(--c-accent-rgb), .08);
+  --a-12: rgba(var(--c-accent-rgb), .12);
+  --a-16: rgba(var(--c-accent-rgb), .16);
+  --a-22: rgba(var(--c-accent-rgb), .22);
+  --a-28: rgba(var(--c-accent-rgb), .28);
+  --a-40: rgba(var(--c-accent-rgb), .40);
+  --hair: rgba(var(--c-accent-rgb), .14);
+  --hair-soft: rgba(var(--c-accent-rgb), .08);
+  --glow: 0 0 26px rgba(var(--c-accent-rgb), .18);
+  --shadow: 0 12px 34px rgba(var(--c-bg-rgb), .7);
+
+  --sidebar-w: 246px;
+  --topbar-h: 54px;
+  --ease: cubic-bezier(.4, .05, .2, 1);
+}
+
+/* =========================================================================
+   Presets de paleta — los aplica theme.js escribiendo estas mismas variables
+   sobre :root. Se dejan documentados aquí para que el instalador y el panel
+   de identidad ofrezcan las mismas opciones que el backend guarda en BD.
+   ========================================================================= */
+
+[data-preset="tic-nocturno"] {
+  --c-brand: #0C2E3C; --c-brand-rgb: 12, 46, 60;
+  --c-accent: #35E0F5; --c-accent-rgb: 53, 224, 245;
+  --c-bg: #050D15; --c-bg-rgb: 5, 13, 21;
+  --c-surface: #08151F; --c-surface-rgb: 8, 21, 31;
+  --c-sunken: #05101A;
+  --c-line: #1E4557; --c-line-rgb: 30, 69, 87;
+  --c-title: #E4F7FD; --c-text: #89AEC0; --c-muted: #4E7285; --c-on-brand: #E4F7FD;
+}
+
+[data-preset="narino-verde"] {
+  --c-brand: #123A31; --c-brand-rgb: 18, 58, 49;
+  --c-accent: #7CF7C8; --c-accent-rgb: 124, 247, 200;
+  --c-bg: #07120F; --c-bg-rgb: 7, 18, 15;
+  --c-surface: #0A1B17; --c-surface-rgb: 10, 27, 23;
+  --c-sunken: #061310;
+  --c-line: #22463A; --c-line-rgb: 34, 70, 58;
+  --c-title: #E6FBF3; --c-text: #93BCAB; --c-muted: #4E7A69; --c-on-brand: #E6FBF3;
+}
+
+[data-preset="institucional-azul"] {
+  --c-brand: #12324F; --c-brand-rgb: 18, 50, 79;
+  --c-accent: #4EA8FF; --c-accent-rgb: 78, 168, 255;
+  --c-bg: #0A0F1A; --c-bg-rgb: 10, 15, 26;
+  --c-surface: #101827; --c-surface-rgb: 16, 24, 39;
+  --c-sunken: #0B111C;
+  --c-line: #243449; --c-line-rgb: 36, 52, 73;
+  --c-title: #EAF2FF; --c-text: #8FA3B8; --c-muted: #566B84; --c-on-brand: #EAF2FF;
+}
+
+[data-preset="creativa-magenta"] {
+  --c-brand: #2B1F3D; --c-brand-rgb: 43, 31, 61;
+  --c-accent: #FF5FD1; --c-accent-rgb: 255, 95, 209;
+  --c-bg: #100D1A; --c-bg-rgb: 16, 13, 26;
+  --c-surface: #191330; --c-surface-rgb: 25, 19, 48;
+  --c-sunken: #120E22;
+  --c-line: #3A2E4A; --c-line-rgb: 58, 46, 74;
+  --c-title: #F6ECFF; --c-text: #AFA3C4; --c-muted: #6E6187; --c-on-brand: #F6ECFF;
+}
+
+/* Paleta clara: pensada para eventos con material impreso de fondo blanco. */
+[data-preset="claro-institucional"] {
+  --c-brand: #0C4A6E; --c-brand-rgb: 12, 74, 110;
+  --c-accent: #0284C7; --c-accent-rgb: 2, 132, 199;
+  --c-bg: #F4F8FB; --c-bg-rgb: 244, 248, 251;
+  --c-surface: #FFFFFF; --c-surface-rgb: 255, 255, 255;
+  --c-sunken: #F0F5F9;
+  --c-line: #C9DCE8; --c-line-rgb: 201, 220, 232;
+  --c-title: #0B2534; --c-text: #44647A; --c-muted: #6E8A9C; --c-on-brand: #FFFFFF;
+  --glow: 0 6px 20px rgba(var(--c-brand-rgb), .10);
+  --shadow: 0 12px 34px rgba(11, 37, 52, .14);
+}
+
+/* =========================================================================
+   Presets tipográficos — cada uno declara además la familia que theme.js
+   debe descargar (data-fonts) para no traer tipografías que no se usan.
+   ========================================================================= */
+
+[data-tipografia="tecnologica"] {
+  --f-display: 'Chakra Petch', 'Segoe UI', system-ui, sans-serif;
+  --f-body: 'IBM Plex Sans', system-ui, sans-serif;
+  --f-mono: 'IBM Plex Mono', ui-monospace, Menlo, monospace;
+  --f-display-tracking: 0.04em;
+  --f-display-transform: uppercase;
+}
+
+[data-tipografia="institucional"] {
+  --f-display: 'Barlow Condensed', 'Arial Narrow', system-ui, sans-serif;
+  --f-body: 'Source Sans 3', system-ui, sans-serif;
+  --f-mono: 'IBM Plex Mono', ui-monospace, Menlo, monospace;
+  --f-display-tracking: 0.06em;
+  --f-display-transform: uppercase;
+}
+
+[data-tipografia="neutra"] {
+  --f-display: 'Inter', system-ui, sans-serif;
+  --f-body: 'Inter', system-ui, sans-serif;
+  --f-mono: 'JetBrains Mono', ui-monospace, Menlo, monospace;
+  --f-display-tracking: -0.01em;
+  --f-display-transform: none;
+}
+
+[data-tipografia="editorial"] {
+  --f-display: 'Space Grotesk', system-ui, sans-serif;
+  --f-body: 'IBM Plex Sans', system-ui, sans-serif;
+  --f-mono: 'IBM Plex Mono', ui-monospace, Menlo, monospace;
+  --f-display-tracking: 0.01em;
+  --f-display-transform: none;
+}
+
+/* Accesibilidad: quien pida menos movimiento no ve escáneres ni parpadeos. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .001ms !important;
+  }
+}

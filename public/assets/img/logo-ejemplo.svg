@@ -1,0 +1,12 @@
+<!-- Logo de ejemplo. El asistente de instalación y el panel de identidad lo
+     reemplazan por el archivo que cargue cada evento. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" role="img" aria-label="Marca del evento">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#35E0F5"/>
+      <stop offset="1" stop-color="#7CF7C8"/>
+    </linearGradient>
+  </defs>
+  <path d="M14 96 46 20l14 34 14-34 32 76H88L74 62 60 96 46 62 32 96z" fill="url(#g)"/>
+  <circle cx="60" cy="24" r="6" fill="#35E0F5"/>
+</svg>

@@ -1,0 +1,93 @@
+# =========================================================================
+# Plataforma de Eventos TIC — configuración de Apache para el directorio
+# publicado. Solo public/ debe ser accesible desde internet; todo lo demás
+# (config/, almacen/, docs/) queda por fuera de la raíz web.
+#
+# Si el alojamiento usa Nginx, la traducción de estas reglas está en
+# docs/SEGURIDAD.md.
+# =========================================================================
+
+# ---- Este sí es público --------------------------------------------------
+# El .htaccess de la raíz del proyecto deniega todo por si el dominio quedó
+# apuntando ahí; aquí se vuelve a permitir, que es lo que debe verse.
+<IfModule mod_authz_core.c>
+    Require all granted
+</IfModule>
+<IfModule !mod_authz_core.c>
+    Order allow,deny
+    Allow from all
+</IfModule>
+
+# ---- Nada de listados de directorio -------------------------------------
+Options -Indexes -MultiViews
+
+# ---- Cabeceras de seguridad ---------------------------------------------
+<IfModule mod_headers.c>
+    # Evita que el navegador adivine el tipo de un archivo servido.
+    Header always set X-Content-Type-Options "nosniff"
+
+    # La plataforma no debe poder incrustarse en un iframe ajeno: sin esto,
+    # un sitio podría superponer controles invisibles sobre el escáner.
+    Header always set X-Frame-Options "DENY"
+
+    # No se filtra la URL completa a terceros al salir del sitio.
+    Header always set Referrer-Policy "strict-origin-when-cross-origin"
+
+    # Se apagan las capacidades que la plataforma no usa. La cámara sí se usa
+    # (lectura de QR), así que se permite solo al propio origen.
+    Header always set Permissions-Policy "camera=(self), microphone=(), geolocation=(), payment=(), usb=()"
+
+    # Política de seguridad de contenido.
+    #   script-src 'self'  — no hay ningún script en línea en el proyecto.
+    #   style-src incluye 'unsafe-inline' porque las pantallas usan atributos
+    #     style= para ajustes puntuales de maquetación. Es un compromiso
+    #     consciente: un ataque por CSS es mucho menos grave que uno por JS.
+    #     La fase 2 debería migrarlos a clases y quitar esa excepción.
+    #   img-src admite data: por el logo cargado desde el panel de identidad.
+    #   No hay orígenes externos: las tipografías están autoalojadas.
+    Header always set Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'; object-src 'none'"
+
+    # HSTS: se activa cuando el dominio ya tenga certificado válido.
+    # Header always set Strict-Transport-Security "max-age=31536000; includeSubDomains"
+
+    # Las descargas con datos personales no se guardan en cachés intermedias.
+    <FilesMatch "\.(csv|vcf|pdf)$">
+        Header always set Cache-Control "no-store, private"
+    </FilesMatch>
+</IfModule>
+
+# ---- Forzar HTTPS --------------------------------------------------------
+# Descomentar cuando el certificado esté instalado.
+# <IfModule mod_rewrite.c>
+#     RewriteEngine On
+#     RewriteCond %{HTTPS} off
+#     RewriteRule ^(.*)$ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+# </IfModule>
+
+# ---- Archivos que nunca deben servirse -----------------------------------
+<FilesMatch "(^\.|\.(sql|log|md|json|lock|ini|bak|old|swp|dist)$|~$)">
+    Require all denied
+</FilesMatch>
+
+# ---- Directorio de subidas ------------------------------------------------
+# Los logos y las fotos del carnet son datos, no código. Si alguien logra
+# subir un archivo con extensión ejecutable, aquí no se ejecuta.
+<IfModule mod_php.c>
+    <Directory "almacen">
+        php_flag engine off
+    </Directory>
+</IfModule>
+
+# ---- Caché de estáticos ---------------------------------------------------
+<IfModule mod_expires.c>
+    ExpiresActive On
+    ExpiresByType text/css "access plus 7 days"
+    ExpiresByType application/javascript "access plus 7 days"
+    ExpiresByType font/woff2 "access plus 1 year"
+    ExpiresByType image/svg+xml "access plus 30 days"
+    ExpiresByType text/html "access plus 0 seconds"
+</IfModule>
+
+<IfModule mod_deflate.c>
+    AddOutputFilterByType DEFLATE text/html text/css application/javascript image/svg+xml application/json
+</IfModule>

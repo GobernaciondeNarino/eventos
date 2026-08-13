@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark light">
+<title>Preregistro · Plataforma de Eventos TIC</title>
+<link rel="icon" href="assets/img/favicon.svg">
+<link rel="stylesheet" href="assets/fonts/fuentes.css">
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/base.css">
+<link rel="stylesheet" href="assets/css/components.css">
+<link rel="stylesheet" href="assets/css/print.css">
+<script src="assets/js/tema.js"></script>
+</head>
+<body data-pantalla="preregistro" data-base="./" data-titulo="Preregistro">
+
+<div class="app">
+  <div class="app__body">
+    <main class="main" id="contenido">
+      <form class="view view--narrow stack stack--4" id="form-preregistro" novalidate>
+
+        <div class="stack stack--2">
+          <span class="kicker">Fase 01 · Datos del participante</span>
+          <h1>Formulario de preregistro</h1>
+          <p class="help">
+            Sesión <span class="mono accent" id="correo-sesion"></span> ·
+            solo dos campos obligatorios.
+          </p>
+        </div>
+
+        <!-- ================= Datos obligatorios ================= -->
+        <section class="card">
+          <div class="card__head"><span><span class="dot" style="display:inline-block;margin-right:8px"></span>Datos obligatorios</span></div>
+          <div class="card__body stack stack--4">
+            <div class="field">
+              <label class="label" for="nombre">Nombre completo <span class="req">*</span></label>
+              <input class="input" id="nombre" name="nombre" autocomplete="name"
+                     placeholder="Ej. María Fernanda Zambrano" required>
+              <span class="error hidden" id="nombre-error"></span>
+            </div>
+
+            <div class="grid-2" style="grid-template-columns:190px 1fr">
+              <div class="field">
+                <label class="label" for="tipoDoc">Tipo de documento <span class="req">*</span></label>
+                <select class="select" id="tipoDoc" name="tipoDoc">
+                  <option value="CC">Cédula de ciudadanía</option>
+                  <option value="CE">Cédula de extranjería</option>
+                  <option value="TI">Tarjeta de identidad</option>
+                  <option value="PP">Pasaporte</option>
+                </select>
+              </div>
+              <div class="field">
+                <label class="label" for="doc">Número de identificación <span class="req">*</span></label>
+                <input class="input input--mono" id="doc" name="doc" inputmode="numeric"
+                       placeholder="Sin puntos ni comas" required>
+                <span class="error hidden" id="doc-error"></span>
+              </div>
+            </div>
+
+            <div class="grid-2">
+              <div class="field">
+                <label class="label" for="tel">Teléfono de contacto</label>
+                <input class="input input--mono" id="tel" name="tel" type="tel"
+                       autocomplete="tel" placeholder="+57 300 000 0000">
+                <span class="error hidden" id="tel-error"></span>
+              </div>
+              <div class="field">
+                <label class="label" for="perfil">Perfil de asistencia</label>
+                <select class="select" id="perfil" name="perfil"></select>
+                <span class="help" id="perfil-ayuda"></span>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ================= Caracterización ================= -->
+        <section class="card">
+          <div class="card__head">
+            <span>Fase 02 · Caracterización (opcional)</span>
+            <button class="btn btn--sm" type="button" id="toggle-opcional" aria-expanded="true"
+                    aria-controls="bloque-opcional">Ocultar</button>
+          </div>
+          <div class="card__body stack stack--5" id="bloque-opcional">
+            <p class="help">Nos permite reportar cobertura territorial y enfoque diferencial. Puedes omitirla por completo.</p>
+
+            <div class="grid-2">
+              <div class="field">
+                <label class="label" for="genero">Género</label>
+                <select class="select" id="genero" name="genero">
+                  <option value="">Prefiero no responder</option>
+                  <option value="F">Femenino</option>
+                  <option value="M">Masculino</option>
+                  <option value="NB">No binario</option>
+                  <option value="O">Otro</option>
+                </select>
+              </div>
+              <div class="field">
+                <label class="label" for="discapacidad">¿Tiene alguna discapacidad?</label>
+                <select class="select" id="discapacidad" name="discapacidad">
+                  <option value="No">No</option>
+                  <option value="Física">Física o motora</option>
+                  <option value="Visual">Visual</option>
+                  <option value="Auditiva">Auditiva</option>
+                  <option value="Cognitiva">Cognitiva o intelectual</option>
+                  <option value="Múltiple">Múltiple</option>
+                </select>
+              </div>
+              <div class="field">
+                <label class="label" for="etnia">Grupo étnico</label>
+                <select class="select" id="etnia" name="etnia">
+                  <option value="Ninguno">Ninguno</option>
+                  <option value="Indígena">Indígena</option>
+                  <option value="Afrocolombiano">Negro, afrocolombiano o afrodescendiente</option>
+                  <option value="Raizal">Raizal</option>
+                  <option value="Palenquero">Palenquero</option>
+                  <option value="Rrom">Rrom / gitano</option>
+                </select>
+              </div>
+              <div class="field">
+                <label class="label" for="entidad">Entidad u organización</label>
+                <input class="input" id="entidad" name="entidad" autocomplete="organization"
+                       placeholder="Ej. Alcaldía de Ipiales">
+              </div>
+            </div>
+
+            <div class="field">
+              <span class="label" id="label-edad">Rango de edad</span>
+              <div class="row" id="edades" role="group" aria-labelledby="label-edad"></div>
+            </div>
+
+            <div class="grid-2" style="align-items:end">
+              <div class="field">
+                <label class="label" for="depto">Departamento</label>
+                <select class="select" id="depto" name="depto">
+                  <option value="">Selecciona…</option>
+                </select>
+              </div>
+              <div class="field">
+                <div class="row" style="min-height:15px;gap:9px">
+                  <label class="label" for="municipio">Municipio</label>
+                  <span class="kicker hidden" id="mun-cargando" style="font-size:10px">
+                    <span class="pulse"></span> consultando…
+                  </span>
+                </div>
+                <select class="select" id="municipio" name="municipio" disabled>
+                  <option value="">Elige primero el departamento</option>
+                </select>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ================= Perfil expositor ================= -->
+        <section class="card">
+          <div class="card__head">
+            <span>Fase 03 · Perfil expositor</span>
+            <button class="switch" type="button" id="switch-expositor" aria-checked="false"
+                    aria-label="Activar perfil de expositor"><span></span></button>
+          </div>
+          <div class="card__body stack stack--4">
+            <p class="help">Activa esta opción si vas a presentar una charla, stand o demostración.</p>
+
+            <div class="stack stack--4 hidden" id="bloque-expositor">
+              <div class="grid-2" style="grid-template-columns:1.4fr 1fr">
+                <div class="field">
+                  <label class="label" for="tema">Tema de la exposición <span class="req">*</span></label>
+                  <input class="input" id="tema" name="tema" placeholder="Ej. Datos abiertos para decidir mejor">
+                  <span class="error hidden" id="tema-error"></span>
+                </div>
+                <div class="field">
+                  <label class="label" for="categoria">Categoría <span class="req">*</span></label>
+                  <select class="select" id="categoria" name="categoria">
+                    <option value="">Selecciona…</option>
+                  </select>
+                  <span class="error hidden" id="categoria-error"></span>
+                </div>
+              </div>
+
+              <div class="field">
+                <label class="label" for="detalle">Detalle de lo que vas a exponer <span class="req">*</span></label>
+                <textarea class="textarea" id="detalle" name="detalle" rows="4" maxlength="600"
+                          placeholder="Resumen que verán los asistentes en la agenda (máx. 600 caracteres)"></textarea>
+                <div class="row row--between">
+                  <span class="error hidden" id="detalle-error"></span>
+                  <span class="help mono" id="contador-detalle">0 / 600</span>
+                </div>
+              </div>
+
+              <div class="grid-3">
+                <div class="field">
+                  <label class="label" for="diaExpo">Día preferido</label>
+                  <select class="select" id="diaExpo" name="diaExpo"></select>
+                </div>
+                <div class="field">
+                  <label class="label" for="duracion">Duración</label>
+                  <select class="select" id="duracion" name="duracion">
+                    <option value="20">20 minutos</option>
+                    <option value="40" selected>40 minutos</option>
+                    <option value="60">1 hora</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label class="label" for="reqs">Requerimientos</label>
+                  <input class="input" id="reqs" name="reqs" placeholder="HDMI, internet…">
+                </div>
+              </div>
+
+              <p class="help mono">
+                Estado de la propuesta: <span class="tag tag--warn">pendiente de aprobación</span>
+                · la Secretaría confirma horario y espacio.
+              </p>
+            </div>
+          </div>
+        </section>
+
+        <!-- ================= Autorización de datos ================= -->
+        <section class="card">
+          <div class="card__head"><span>Tratamiento de datos</span></div>
+          <div class="card__body stack stack--3">
+            <label class="row" style="align-items:flex-start;gap:11px;cursor:pointer">
+              <input type="checkbox" id="habeas" style="margin-top:3px;width:18px;height:18px;accent-color:var(--c-accent)">
+              <span class="help" style="flex:1">
+                Autorizo el tratamiento de mis datos personales por parte de la Gobernación de
+                Nariño para la gestión de este evento, conforme a la Ley 1581 de 2012 y a la
+                política de tratamiento de datos de la entidad. <span class="req">*</span>
+              </span>
+            </label>
+            <span class="error hidden" id="habeas-error"></span>
+          </div>
+        </section>
+
+        <div class="row row--between" style="padding-top:4px">
+          <span class="help mono" id="mensaje-validacion"></span>
+          <div class="row">
+            <a class="btn" href="index.html">Atrás</a>
+            <button class="btn btn--primary" type="submit">Completar preregistro</button>
+          </div>
+        </div>
+
+      </form>
+    </main>
+  </div>
+</div>
+
+<script src="assets/js/ui.js"></script>
+<script src="assets/js/datos-demo.js"></script>
+<script src="assets/js/qr.js"></script>
+<script src="assets/js/layout.js"></script>
+<script src="assets/js/paginas/preregistro.js"></script>
+</body>
+</html>

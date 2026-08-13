@@ -1,0 +1,251 @@
+/* =========================================================================
+   Base — reinicio, tipografía y estructura de página
+   ========================================================================= */
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html { -webkit-text-size-adjust: 100%; }
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: var(--c-bg);
+  color: var(--c-text);
+  font-family: var(--f-body);
+  font-size: var(--fs-base);
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+a { color: var(--c-accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+h1, h2, h3, h4 {
+  margin: 0;
+  font-family: var(--f-display);
+  color: var(--c-title);
+  letter-spacing: var(--f-display-tracking);
+  text-transform: var(--f-display-transform);
+  line-height: 1.12;
+  text-wrap: balance;
+}
+
+h1 { font-size: var(--fs-h1); font-weight: 700; }
+h2 { font-size: var(--fs-h2); font-weight: 700; }
+h3 { font-size: var(--fs-h3); font-weight: 600; }
+
+p { margin: 0; }
+
+img, svg { max-width: 100%; }
+
+input, select, textarea, button { font: inherit; color: inherit; }
+
+::placeholder { color: var(--c-muted); opacity: 1; }
+
+option { background: var(--c-surface); color: var(--c-title); }
+
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-thumb { background: var(--a-28); border-radius: 3px; }
+::-webkit-scrollbar-track { background: transparent; }
+
+/* Foco visible siempre: requisito de accesibilidad, no decorativo. */
+:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: 2px;
+}
+
+/* Solo para lectores de pantalla */
+.sr-only {
+  position: absolute; width: 1px; height: 1px;
+  padding: 0; margin: -1px; overflow: hidden;
+  clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+
+.skip-link {
+  position: absolute; left: -999px; top: 0; z-index: 200;
+  background: var(--c-accent); color: var(--c-bg);
+  padding: 10px 16px; font-family: var(--f-mono); font-size: var(--fs-mono-sm);
+}
+.skip-link:focus { left: 8px; top: 8px; }
+
+/* ---- Animaciones --------------------------------------------------------- */
+@keyframes riseIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+@keyframes scanline { 0% { top: 10%; } 100% { top: 86%; } }
+@keyframes blip { 0%, 100% { opacity: .3; } 50% { opacity: 1; } }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* =========================================================================
+   Estructura general
+   ========================================================================= */
+
+.app { min-height: 100vh; display: flex; background: var(--c-bg); }
+
+.app__body { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+
+.main {
+  flex: 1;
+  padding: var(--sp-6) var(--sp-5) 108px;
+  display: flex;
+  justify-content: center;
+}
+
+.view { width: 100%; animation: riseIn .4s ease both; }
+.view--narrow { max-width: 860px; }
+.view--medium { max-width: 1020px; }
+.view--wide { max-width: 1200px; }
+
+/* ---- Barra lateral -------------------------------------------------------- */
+.sidebar {
+  width: var(--sidebar-w);
+  flex-shrink: 0;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  background: var(--c-surface);
+  border-right: 1px solid var(--a-22);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-5);
+  padding: var(--sp-5) var(--sp-4);
+}
+
+.sidebar__brand { display: flex; align-items: center; gap: 11px; padding: 0 6px; }
+.sidebar__nav { display: flex; flex-direction: column; gap: 20px; overflow-y: auto; }
+.sidebar__group { display: flex; flex-direction: column; gap: var(--sp-1); }
+.sidebar__groupLabel {
+  font-family: var(--f-mono); font-size: var(--fs-micro);
+  letter-spacing: .24em; text-transform: uppercase;
+  color: var(--c-muted); opacity: .8; padding: 0 8px 6px;
+}
+.sidebar__foot {
+  margin-top: auto; display: flex; align-items: center; gap: var(--sp-2);
+  padding: 10px; border-top: 1px solid var(--hair);
+  font-family: var(--f-mono); font-size: var(--fs-micro);
+  letter-spacing: .18em; text-transform: uppercase; color: var(--c-muted);
+}
+
+.navlink {
+  display: flex; align-items: center; gap: 11px;
+  cursor: pointer; text-align: left; width: 100%;
+  padding: 10px; border: 0; border-left: 2px solid transparent;
+  background: transparent; color: var(--c-muted);
+  font-family: var(--f-mono); font-size: 11.5px;
+  letter-spacing: .1em; text-transform: uppercase;
+  text-decoration: none;
+}
+.navlink:hover { background: var(--a-08); color: var(--c-title); text-decoration: none; }
+.navlink svg { flex-shrink: 0; }
+.navlink.is-active {
+  border-left-color: var(--c-accent);
+  background: var(--a-12);
+  color: var(--c-accent);
+}
+
+/* ---- Marca / logo --------------------------------------------------------- */
+.brandmark {
+  width: 34px; height: 34px; flex-shrink: 0;
+  border: 1px solid var(--c-accent); background: var(--a-12);
+  display: grid; place-items: center; overflow: hidden;
+  font-family: var(--f-display); font-weight: 700; font-size: 17px;
+  color: var(--c-accent); clip-path: var(--cut-sm);
+}
+.brandmark img { width: 100%; height: 100%; object-fit: contain; }
+.brandmark--sm { width: 30px; height: 30px; font-size: 15px; }
+.brandmark--lg { width: 40px; height: 40px; font-size: 19px; }
+
+.brandtext { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.brandtext__name {
+  font-family: var(--f-display); font-weight: 700; font-size: 13px;
+  letter-spacing: .12em; text-transform: uppercase; color: var(--c-title);
+  line-height: 1.2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.brandtext__sub {
+  font-family: var(--f-mono); font-size: 8.5px; letter-spacing: .2em;
+  text-transform: uppercase; color: var(--c-muted);
+}
+
+/* ---- Barra superior (móvil) ---------------------------------------------- */
+.topbar {
+  display: none; align-items: center; justify-content: space-between;
+  gap: var(--sp-3); padding: var(--sp-3) 18px;
+  background: var(--c-surface); border-bottom: 1px solid var(--a-22);
+  position: sticky; top: 0; z-index: 40;
+}
+.topbar__screen {
+  font-family: var(--f-mono); font-size: var(--fs-micro);
+  letter-spacing: .16em; text-transform: uppercase;
+  color: var(--c-muted); white-space: nowrap;
+}
+
+/* ---- Navegación inferior (móvil) ----------------------------------------- */
+.tabbar {
+  display: none; position: fixed; left: 0; right: 0; bottom: 0; z-index: 50;
+  justify-content: center; padding: 0 var(--sp-4) 18px; pointer-events: none;
+}
+.tabbar__inner {
+  pointer-events: auto; display: flex; align-items: center; gap: 6px;
+  background: rgba(var(--c-surface-rgb), .94);
+  -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
+  border: 1px solid var(--a-22); border-radius: 999px;
+  padding: var(--sp-2) 10px; box-shadow: var(--shadow);
+}
+.tabbar__btn {
+  cursor: pointer; border: 0; width: 52px; height: 44px; border-radius: 999px;
+  display: grid; place-items: center; background: transparent; color: var(--c-text);
+}
+.tabbar__btn.is-active { background: var(--a-16); color: var(--c-accent); }
+
+/* ---- Hoja inferior (menú móvil) ------------------------------------------ */
+.sheet {
+  position: fixed; inset: 0; background: rgba(var(--c-bg-rgb), .8); z-index: 55;
+  display: flex; align-items: flex-end; padding: 0 var(--sp-3) 96px;
+  animation: riseIn .2s ease both;
+}
+.sheet__panel {
+  width: 100%; background: var(--c-surface); border: 1px solid var(--a-28);
+  border-radius: var(--radius-lg); overflow: hidden; max-height: 70vh;
+}
+.sheet__list { padding: var(--sp-2); overflow-y: auto; max-height: 56vh; }
+.sheet__list .navlink { border-left: 0; border-radius: 8px; font-size: 12px; padding: 13px 12px; }
+
+/* =========================================================================
+   Adaptación a pantallas pequeñas
+   ========================================================================= */
+@media (max-width: 900px) {
+  .sidebar { display: none; }
+  .topbar { display: flex; }
+  .tabbar { display: flex; }
+  .main { padding: var(--sp-5) var(--sp-3) 118px; }
+  .grid-2, .grid-3, .grid-4, .split, .split--reverse { grid-template-columns: 1fr !important; }
+  .is-sticky { position: static !important; }
+}
+
+/* =========================================================================
+   Rejillas reutilizables
+   ========================================================================= */
+.stack { display: flex; flex-direction: column; }
+.stack--2 { gap: var(--sp-2); }
+.stack--3 { gap: var(--sp-3); }
+.stack--4 { gap: var(--sp-4); }
+.stack--5 { gap: var(--sp-5); }
+
+.row { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
+.row--between { justify-content: space-between; }
+.row--end { justify-content: flex-end; }
+
+.grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-4); }
+.grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--sp-3); }
+.grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+
+.split { display: grid; grid-template-columns: 1fr 380px; gap: var(--sp-7); }
+.split--reverse { display: grid; grid-template-columns: 400px 1fr; gap: 40px; }
+.split--balanced { display: grid; grid-template-columns: 1.1fr 0.9fr; gap: 34px; }
+
+/* Sin esto, una celda con contenido ancho (una tabla, un bloque de código) se
+   niega a encogerse — su min-width por defecto es auto — y empuja la página
+   entera a scroll horizontal en lugar de desplazarse por dentro. */
+.grid-2 > *, .grid-3 > *, .grid-4 > *,
+.split > *, .split--reverse > *, .split--balanced > * { min-width: 0; }
+
+.is-sticky { position: sticky; top: 96px; }

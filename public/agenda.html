@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark light">
+<title>Agenda · Plataforma de Eventos TIC</title>
+<link rel="icon" href="assets/img/favicon.svg">
+<link rel="stylesheet" href="assets/fonts/fuentes.css">
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/base.css">
+<link rel="stylesheet" href="assets/css/components.css">
+<link rel="stylesheet" href="assets/css/print.css">
+<script src="assets/js/tema.js"></script>
+</head>
+<body data-pantalla="agenda" data-base="./" data-titulo="Agenda">
+
+<div class="app">
+  <div class="app__body">
+    <main class="main" id="contenido">
+      <div class="view view--medium stack stack--4">
+
+        <div class="row row--between" style="align-items:flex-end">
+          <div class="stack stack--2">
+            <span class="kicker">Programación</span>
+            <h1>Agenda de exposiciones</h1>
+          </div>
+          <div class="row" id="dias-agenda" role="group" aria-label="Día de la agenda"></div>
+        </div>
+
+        <div class="card">
+          <div class="card__head">
+            <span>Filtrar</span>
+            <span class="muted" id="conteo-charlas"></span>
+          </div>
+          <div class="card__body row">
+            <label class="sr-only" for="buscar-agenda">Buscar en la agenda</label>
+            <input class="input" id="buscar-agenda" style="flex:1;min-width:220px"
+                   placeholder="Buscar por título, expositor o entidad…">
+            <label class="sr-only" for="filtro-categoria">Categoría</label>
+            <select class="select" id="filtro-categoria" style="width:auto;min-width:200px">
+              <option value="">Todas las categorías</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="stack stack--2" id="lista-charlas"></div>
+
+      </div>
+    </main>
+  </div>
+</div>
+
+<script src="assets/js/ui.js"></script>
+<script src="assets/js/datos-demo.js"></script>
+<script src="assets/js/qr.js"></script>
+<script src="assets/js/layout.js"></script>
+<script src="assets/js/paginas/agenda.js"></script>
+</body>
+</html>
