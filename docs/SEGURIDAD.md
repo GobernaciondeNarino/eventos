@@ -24,8 +24,9 @@ escribió para eso.
 | Auditoría | Bitácora de solo inserción |
 | Cabeceras y exposición de archivos | En `.htaccess` y también desde PHP |
 
-Lo verifica `pruebas/extremo-a-extremo.php`: 122 comprobaciones sobre un servidor real, de
-las cuales 23 son específicamente de seguridad.
+Lo verifica `pruebas/extremo-a-extremo.php`: 143 comprobaciones sobre un servidor real, de
+las cuales 25 son específicamente de seguridad, más las suites de correo, segundo factor,
+saneado de SVG y detección de proxy.
 
 ---
 
@@ -385,7 +386,11 @@ conviene decirlo con claridad en la pantalla de privacidad.
 ## 6. Verificación
 
 ```bash
-php pruebas/extremo-a-extremo.php      # 122 comprobaciones, 23 de seguridad
+php pruebas/extremo-a-extremo.php      # 143 comprobaciones, 25 de seguridad
+php pruebas/totp.php                   # segundo factor contra el RFC 6238
+php pruebas/correo.php                 # formato MIME e inyección de cabeceras
+php pruebas/svg-saneado.php            # logos SVG con código dentro
+php pruebas/proxy-y-limites.php        # la IP real detrás del proxy
 php pruebas/qr-php-contra-js.php       # el generador de QR del servidor
 python3 pruebas/qr-contra-referencia.py
 node pruebas/pantallas.js              # escritorio

@@ -85,6 +85,17 @@ final class Guardia
             Respuesta::redirigir('/admin/verificar');
         }
 
+        // Y si el segundo factor es obligatorio para este rol pero la cuenta
+        // todavía no lo tiene puesto, tampoco se pasa de aquí. El acceso ya
+        // enviaba a la pantalla de alta, pero solo eso: quien escribía /admin
+        // en la barra de direcciones entraba al panel completo sin activarlo,
+        // que es exactamente lo que se quería impedir.
+        if (\App\Modelos\Usuario::exigeSegundoFactor($usuario)
+            && !\App\Modelos\Usuario::tieneSegundoFactor($usuario)
+            && Config::obtener('exigir_2fa_admin', true)) {
+            Respuesta::redirigir('/admin/activar-2fa');
+        }
+
         if ($usuario['estado'] !== 'activo') {
             Sesion::cerrar('admin');
             Respuesta::error(403, 'Cuenta suspendida',

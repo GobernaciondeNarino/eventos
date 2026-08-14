@@ -24,7 +24,7 @@ registra gente, se sella asistencia, se aprueban exposiciones y se exportan repo
 | **Instalación** | Asistente de seis pasos que crea, actualiza o anexa las tablas |
 | **Autenticación** | Asistentes por código de correo; equipo con contraseña y segundo factor |
 | **Códigos QR** | Generador propio, verificado contra una librería de referencia |
-| **Pruebas** | 122 comprobaciones de extremo a extremo sobre un servidor real |
+| **Pruebas** | 143 comprobaciones de extremo a extremo, más 77 de correo, TOTP, SVG y proxy |
 
 ---
 
@@ -217,8 +217,10 @@ Node y Python se usan solo para herramientas y pruebas, nunca en producción.
 ## Pruebas
 
 ```bash
-# Extremo a extremo: instala, registra, sella, acredita y exporta
-php -S 127.0.0.1:8900 -t /tmp/web /tmp/web/router.php &
+# Extremo a extremo: instala, registra, sella, acredita y exporta.
+# pruebas/servidor.php imita los bloqueos del .htaccess, así que las
+# comprobaciones de superficie expuesta valen de verdad.
+BASE=/cumbreAI php -S 127.0.0.1:8900 -t . pruebas/servidor.php &
 php pruebas/extremo-a-extremo.php
 
 # El generador de QR
@@ -241,9 +243,11 @@ ANCHO=390 node pruebas/pantallas.js       # móvil
 
 `extremo-a-extremo.php` habla por HTTP y no llamando a las clases, así que comprueba también
 el enrutado, las cookies, los testigos y los guardias, que es donde suelen estar los errores.
-Incluye 23 comprobaciones de seguridad.
+Incluye 25 comprobaciones de seguridad.
 
-Estado actual: **122 de 122** de extremo a extremo, **198** casos de QR idénticos entre PHP y
+Estado actual: **143 de 143** de extremo a extremo, **28** del segundo factor contra los
+vectores del RFC 6238, **19** de la dirección del visitante detrás del proxy, **17** del
+saneado de logos SVG, **13** del correo saliente, **198** casos de QR idénticos entre PHP y
 JavaScript, **161** entre JavaScript y la referencia, y las 13 pantallas limpias en escritorio
 y móvil.
 

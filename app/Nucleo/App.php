@@ -54,9 +54,19 @@ final class App
             Bd::conectar();
         } catch (\Throwable $e) {
             Registro::excepcion($e);
+
+            // El diagnóstico es justo lo que hace falta cuando la base no
+            // responde, así que tiene que poder abrirse sin ella. Sabe
+            // arreglárselas: la clase Instalacion atrapa el fallo de conexión y
+            // lo cuenta como parte del informe.
+            if ($peticion->ruta() === '/instalar/diagnostico') {
+                self::despachar($peticion);
+            }
+
             Respuesta::error(503, 'Base de datos fuera de servicio',
                 'La plataforma no puede conectarse a su base de datos en este momento. '
-                . 'Si el problema continúa, avisa al área de sistemas.');
+                . 'Si el problema continúa, avisa al área de sistemas.',
+                [['texto' => 'Ver el diagnóstico', 'url' => Url::a('/instalar/diagnostico'), 'principal' => true]]);
         }
 
         Sesion::limpiar();

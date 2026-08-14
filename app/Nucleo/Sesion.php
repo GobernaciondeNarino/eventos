@@ -54,7 +54,18 @@ final class Sesion
             // Con Strict la cookie no viajaría y pediría login otra vez.
             'samesite' => 'Lax',
         ]);
-        $_COOKIE[$nombre] = $expira < time() ? '' : $valor;
+
+        // El valor manda, y no la fecha de caducidad.
+        //
+        // Antes esto era «$expira < time() ? '' : $valor», dando por hecho que
+        // una fecha pasada significaba borrar. Pero la sesión del organizador
+        // usa expires=0 —una cookie que muere al cerrar el navegador— y cero es
+        // menor que ahora, así que $_COOKIE se vaciaba justo después de abrir o
+        // rotar la sesión. En el resto de esa misma petición la sesión no
+        // existía, y por eso guardarDatos() no llegaba a apagar pendiente_2fa:
+        // el administrador entraba con su código correcto y volvía a la
+        // pantalla de verificación, una y otra vez, sin poder pasar nunca.
+        $_COOKIE[$nombre] = $valor;
     }
 
     private static function leerCookie(string $nombre): string
