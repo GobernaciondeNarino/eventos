@@ -231,6 +231,9 @@ php pruebas/svg-saneado.php
 # La dirección del visitante detrás de un proxy
 php pruebas/proxy-y-limites.php
 
+# El correo que llega al buzón
+php pruebas/correo.php
+
 # Las pantallas en un navegador real
 node pruebas/pantallas.js                 # escritorio
 ANCHO=390 node pruebas/pantallas.js       # móvil

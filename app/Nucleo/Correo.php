@@ -40,7 +40,7 @@ final class Correo
         $modo = (string) Config::obtener('modo_correo', 'php');
 
         if ($cuerpoTexto === '') {
-            $cuerpoTexto = trim(html_entity_decode(strip_tags($cuerpoHtml), ENT_QUOTES, 'UTF-8'));
+            $cuerpoTexto = self::aTextoPlano($cuerpoHtml);
         }
 
         $limite = 'lim_' . bin2hex(random_bytes(12));
@@ -53,15 +53,20 @@ final class Correo
             'Auto-Submitted: auto-generated',
         ]);
 
-        $cuerpo = "--$limite\r\n"
-            . "Content-Type: text/plain; charset=UTF-8\r\n"
-            . "Content-Transfer-Encoding: 8bit\r\n\r\n"
-            . $cuerpoTexto . "\r\n\r\n"
-            . "--$limite\r\n"
-            . "Content-Type: text/html; charset=UTF-8\r\n"
-            . "Content-Transfer-Encoding: 8bit\r\n\r\n"
-            . $cuerpoHtml . "\r\n\r\n"
-            . "--$limite--";
+        // Base64 y no 8bit. El correo electrónico limita cada línea a 998
+        // caracteres (RFC 5321), y la plantilla HTML es una sola línea de varios
+        // miles: con 8bit hay servidores que la rechazan y otros que la parten
+        // por donde les conviene, y el mensaje llega roto. Como el carnet y el
+        // código de acceso son lo único que devuelve a un asistente a su cuenta,
+        // que un correo no llegue no es un detalle menor.
+        $parte = static fn(string $tipo, string $contenido): string =>
+            "Content-Type: $tipo; charset=UTF-8\r\n"
+            . "Content-Transfer-Encoding: base64\r\n\r\n"
+            . chunk_split(base64_encode($contenido), 76, "\r\n");
+
+        $cuerpo = "--$limite\r\n" . $parte('text/plain', $cuerpoTexto) . "\r\n"
+            . "--$limite\r\n" . $parte('text/html', $cuerpoHtml) . "\r\n"
+            . "--$limite--\r\n";
 
         $asuntoCodificado = '=?UTF-8?B?' . base64_encode($asunto) . '?=';
 
@@ -74,11 +79,47 @@ final class Correo
             return true;
         }
 
-        $enviado = @mail($destinatario, $asuntoCodificado, $cuerpo, $cabeceras, '-f' . $remitente);
+        // El quinto parámetro de mail() acaba en la línea de órdenes de
+        // sendmail. Solo se pasa si el remitente es un correo válido: cualquier
+        // otra cosa ahí es la vía conocida para ejecutar órdenes en el servidor.
+        $sobre = filter_var($remitente, FILTER_VALIDATE_EMAIL) ? '-f' . $remitente : '';
+
+        $enviado = @mail($destinatario, $asuntoCodificado, $cuerpo, $cabeceras, $sobre);
         if (!$enviado) {
             Registro::error('mail() falló', ['para' => $destinatario, 'asunto' => $asunto]);
         }
         return $enviado;
+    }
+
+    /**
+     * La versión en texto del mensaje.
+     *
+     * strip_tags() a secas se lleva por delante los enlaces: «Ver mi carnet»
+     * sobrevive, la dirección no. Quien lea el correo en texto plano —o cuyo
+     * cliente bloquee el HTML— se queda con un botón que no existe y sin ninguna
+     * dirección a la que ir. Aquí el enlace se escribe entero antes de quitar
+     * las etiquetas.
+     */
+    private static function aTextoPlano(string $html): string
+    {
+        $texto = preg_replace_callback(
+            '#<a\b[^>]*href\s*=\s*(["\'])(.*?)\1[^>]*>(.*?)</a>#is',
+            static function (array $m): string {
+                $destino = html_entity_decode($m[2], ENT_QUOTES, 'UTF-8');
+                $rotulo = trim(html_entity_decode(strip_tags($m[3]), ENT_QUOTES, 'UTF-8'));
+                return $rotulo === '' || $rotulo === $destino ? $destino : $rotulo . ': ' . $destino;
+            },
+            $html
+        ) ?? $html;
+
+        // Los saltos de párrafo se conservan para que el texto sea legible.
+        $texto = preg_replace('#<\s*/\s*(p|div|tr|h[1-6])\s*>#i', "\n\n", $texto) ?? $texto;
+        $texto = preg_replace('#<\s*br\s*/?\s*>#i', "\n", $texto) ?? $texto;
+        $texto = html_entity_decode(strip_tags($texto), ENT_QUOTES, 'UTF-8');
+        $texto = preg_replace('/[ \t]+/', ' ', $texto) ?? $texto;
+        $texto = preg_replace('/\n{3,}/', "\n\n", $texto) ?? $texto;
+
+        return trim($texto);
     }
 
     /** ¿Está el correo listo para usarse? Lo consulta el instalador. */
