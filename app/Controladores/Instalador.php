@@ -24,14 +24,20 @@ use App\Nucleo\Url;
  *
  * Seis pasos. El estado va en una cookie firmada y no en sesión, porque
  * todavía no hay base de datos donde guardar sesiones. Ninguna contraseña pasa
- * por esa cookie: la de la base de datos se escribe en config/config.php en
- * cuanto la conexión se comprueba, y la del administrador se convierte a hash
- * en el paso 4 y solo viaja así.
+ * por esa cookie: la de la base de datos se escribe en config/instalacion.php
+ * en cuanto la conexión se comprueba, y la del administrador se convierte a
+ * hash en el paso 4 y solo viaja así.
  *
- * El orden del paso final importa y está explicado allí: la marca de
- * «instalado» se escribe la última, cuando ya existen la cuenta y el evento.
- * Escribirla antes dejaba la plataforma cerrada y sin puerta si algo fallaba
- * después.
+ * Dos invariantes que conviene no romper, porque romperlas ya costó caro:
+ *
+ *  1. Que exista config/config.php significa «instalación terminada». Nunca se
+ *     escribe a medias. Un config.php con instalado=false deja el sitio entero
+ *     redirigiendo al asistente y, desde fuera, es indistinguible de un sitio
+ *     que nunca se instaló. Los datos de conexión del proceso viven mientras
+ *     tanto en config/instalacion.php, que el paso 6 borra.
+ *  2. El paso final escribe esa marca al final, cuando la cuenta y el evento ya
+ *     existen. Al revés, cualquier fallo posterior dejaba la plataforma cerrada
+ *     y sin puerta.
  *
  * Al terminar, el asistente se cierra solo: la ruta queda bloqueada mientras
  * exista config/config.php con la marca de instalación completa. No hay que
@@ -122,6 +128,126 @@ final class Instalador
             'diagnostico' => null,
             'sinPlantilla' => true,
         ]);
+    }
+
+    /**
+     * Diagnóstico.
+     *
+     * La pantalla que faltaba. Cuando la plataforma se queda redirigiendo al
+     * asistente, desde fuera no se distingue «nunca se instaló» de «se instaló
+     * y algo no se pudo leer», y sin esa distinción no hay nada que hacer salvo
+     * adivinar. Aquí se dice el estado real: qué archivos hay, qué contesta la
+     * base de datos, y qué fue lo último que falló.
+     *
+     * No muestra ninguna credencial. Y solo es pública mientras el asistente lo
+     * es: en cuanto la plataforma funciona, exige sesión de administrador.
+     */
+    public function diagnostico(Peticion $peticion): void
+    {
+        $publico = !Config::instalado() || !Instalacion::completa();
+        if (!$publico) {
+            \App\Nucleo\Guardia::exigir('admin:administrador', $peticion);
+        }
+
+        Respuesta::vista('instalar/diagnostico', [
+            'titulo'       => 'Diagnóstico de la instalación',
+            'estado'       => Instalacion::diagnostico(),
+            'servidor'     => $this->datosDelServidor(),
+            'archivos'     => $this->datosDeArchivos(),
+            'errores'      => Instalacion::erroresRecientes(12, $publico),
+            'publico'      => $publico,
+            'sinPlantilla' => true,
+        ]);
+    }
+
+    /** @return array<string, string> */
+    private function datosDelServidor(): array
+    {
+        $peticion = \App\Nucleo\App::peticion();
+
+        $opcache = 'no disponible';
+        if (function_exists('opcache_get_status')) {
+            $estado = @opcache_get_status(false);
+            if (is_array($estado) && !empty($estado['opcache_enabled'])) {
+                $valida = ini_get('opcache.validate_timestamps');
+                $opcache = 'activo · validate_timestamps='
+                    . (($valida === false || $valida === '') ? '?' : $valida)
+                    . ' · revalidate_freq=' . (ini_get('opcache.revalidate_freq') ?: '?');
+            } else {
+                $opcache = 'inactivo';
+            }
+        }
+
+        return [
+            'PHP'                => PHP_VERSION . ' (' . PHP_SAPI . ')',
+            'Versión de la app'  => APP_VERSION,
+            'Esquema esperado'   => Esquema::VERSION,
+            'OPcache'            => $opcache,
+            'Ruta base detectada' => $peticion->base() === '' ? '(raíz del dominio)' : $peticion->base(),
+            'SCRIPT_NAME'        => (string) ($_SERVER['SCRIPT_NAME'] ?? ''),
+            'REQUEST_URI'        => (string) ($_SERVER['REQUEST_URI'] ?? ''),
+            'HTTPS detectado'    => $peticion->esSegura() ? 'sí' : 'no',
+            'Servidor web'       => (string) ($_SERVER['SERVER_SOFTWARE'] ?? 'desconocido'),
+            'Zona horaria'       => date_default_timezone_get() . ' · ' . date('Y-m-d H:i:s'),
+            'Usuario del proceso' => function_exists('posix_geteuid') && function_exists('posix_getpwuid')
+                ? (string) (posix_getpwuid(posix_geteuid())['name'] ?? '?')
+                : get_current_user(),
+        ];
+    }
+
+    /** @return array<int, array{nombre: string, estado: string, valor: string, detalle: string}> */
+    private function datosDeArchivos(): array
+    {
+        $lista = [];
+
+        foreach ([
+            'config/config.php'      => 'La configuración. Que exista significa instalación terminada.',
+            'config/instalacion.php' => 'Datos de conexión mientras dura el asistente. Sobra si ya terminó.',
+        ] as $relativa => $para) {
+            $ruta = RAIZ . '/' . $relativa;
+            $hay = is_file($ruta);
+            $lista[] = [
+                'nombre'  => $relativa,
+                'detalle' => $para,
+                'valor'   => $hay ? number_format(filesize($ruta)) . ' B · ' . date('Y-m-d H:i', filemtime($ruta)) : 'no existe',
+                'estado'  => $relativa === 'config/config.php' ? ($hay ? 'ok' : 'warn') : ($hay ? 'warn' : 'ok'),
+            ];
+        }
+
+        if (Config::existe()) {
+            $marca = (bool) Config::obtener('instalado', false);
+            $lista[] = [
+                'nombre'  => 'Marca «instalado»',
+                'detalle' => 'Lo que dice config/config.php',
+                'valor'   => $marca ? 'true' : 'false',
+                'estado'  => $marca ? 'ok' : 'fail',
+            ];
+            $lista[] = [
+                'nombre'  => 'Llave de cifrado',
+                'detalle' => 'Sin ella los documentos guardados quedan ilegibles',
+                'valor'   => \App\Nucleo\Cripto::hayLlave() ? 'presente y válida' : 'ausente o inválida',
+                'estado'  => \App\Nucleo\Cripto::hayLlave() ? 'ok' : 'fail',
+            ];
+            $lista[] = [
+                'nombre'  => 'url_base configurada',
+                'detalle' => 'La que se usa en los correos y dentro de los códigos QR',
+                'valor'   => (string) (Config::obtener('url_base') ?: '(sin definir)'),
+                'estado'  => Config::obtener('url_base') ? 'ok' : 'warn',
+            ];
+        }
+
+        foreach (['config', 'almacen/registro'] as $relativa) {
+            $ruta = RAIZ . '/' . $relativa;
+            $escribible = is_dir($ruta) && is_writable($ruta);
+            $lista[] = [
+                'nombre'  => $relativa . '/',
+                'detalle' => 'Permiso de escritura para el usuario del dominio',
+                'valor'   => is_dir($ruta) ? ($escribible ? 'escritura' : 'solo lectura') : 'no existe',
+                'estado'  => $escribible ? 'ok' : 'fail',
+            ];
+        }
+
+        return $lista;
     }
 
     /* =====================================================================
@@ -332,17 +458,25 @@ final class Instalador
         Bd::reiniciar();
         Instalacion::olvidar();
 
-        // La contraseña de la base se guarda ya en config/config.php, con la
-        // instalación marcada como no terminada. Es el único sitio donde tiene
-        // que estar y donde va a acabar de todos modos: una carpeta bloqueada
-        // por el servidor y un archivo .php, que aunque se sirviera como
-        // estático no mostraría nada. Antes viajaba en la cookie del asistente,
-        // que es exactamente lo que no debe pasar con una credencial.
-        if (!Config::escribir($this->configuracionParcial($parametros))) {
-            return [2, ['general' => 'La conexión funciona, pero no se pudo escribir config/config.php. '
-                . 'Dale permiso de escritura a la carpeta config/ y vuelve a intentarlo.'],
+        // La contraseña de la base se guarda en config/instalacion.php, un
+        // archivo aparte que solo vive mientras dura el asistente y que el
+        // paso 6 borra. Antes viajaba en la cookie del proceso, que es
+        // exactamente lo que no debe pasar con una credencial.
+        //
+        // Va en un archivo suyo y no en config/config.php a propósito: que
+        // exista config.php tiene que seguir significando «instalación
+        // terminada». Escribirlo a medias, con instalado=false, deja el sitio
+        // entero redirigiendo al asistente si el proceso se interrumpe después,
+        // y desde fuera no hay forma de distinguir eso de una instalación que
+        // nunca empezó.
+        if (!$this->guardarConexion($parametros)) {
+            return [2, ['general' => 'La conexión con la base de datos funciona, pero no se pudo escribir '
+                . 'en la carpeta config/. Dale permiso de escritura al usuario del dominio y vuelve a '
+                . 'intentarlo: es donde se guarda la configuración.'],
                 $estado + ['bd' => $this->sinClave($parametros)]];
         }
+
+        $this->conectarCon($parametros);
 
         if (Instalacion::incompleta()) {
             Bitacora::registrar('instalacion_reparacion', 'sistema', null, [
@@ -354,28 +488,84 @@ final class Instalador
         return [3, [], $estado];
     }
 
-    /**
-     * Lo que se sabe tras el paso 2: los datos de conexión y nada más.
-     *
-     * Con el operador de unión, lo nuevo pisa a lo anterior y lo anterior pisa
-     * a los valores por defecto. Así una reparación sobre una instalación viva
-     * no la marca como no instalada a mitad del proceso —eso dejaría el sitio
-     * público redirigiendo al asistente— ni pierde la llave de cifrado.
-     */
-    private function configuracionParcial(array $parametros): array
+    /* ---------------------------------------------------------------------
+       Datos de conexión mientras dura el asistente
+       --------------------------------------------------------------------- */
+
+    private function rutaConexion(): string
     {
-        return [
+        return RAIZ . '/config/instalacion.php';
+    }
+
+    private function guardarConexion(array $parametros): bool
+    {
+        $directorio = dirname($this->rutaConexion());
+        if (!is_dir($directorio) && !@mkdir($directorio, 0750, true)) {
+            return false;
+        }
+
+        $contenido = "<?php\n"
+            . "/**\n"
+            . " * Datos de conexión mientras dura la instalación.\n"
+            . " *\n"
+            . " * Lo escribe el paso 2 del asistente y lo borra el paso 6. Existe para que la\n"
+            . " * contraseña de la base de datos no viaje en la cookie del proceso.\n"
+            . " *\n"
+            . " * Si lo encuentras en un servidor que ya funciona, sobra: es de una\n"
+            . " * instalación que quedó a medias y se puede borrar sin miedo.\n"
+            . " */\n\nreturn " . var_export($parametros, true) . ";\n";
+
+        $temporal = $directorio . '/.conexion-' . bin2hex(random_bytes(6)) . '.tmp';
+        if (@file_put_contents($temporal, $contenido, LOCK_EX) === false) {
+            return false;
+        }
+        @chmod($temporal, 0640);
+
+        if (!@rename($temporal, $this->rutaConexion())) {
+            @unlink($temporal);
+            return false;
+        }
+        // Sin esto, otro proceso de PHP-FPM puede seguir sirviendo la versión
+        // anterior del archivo durante minutos.
+        if (function_exists('opcache_invalidate')) {
+            @opcache_invalidate($this->rutaConexion(), true);
+        }
+        return true;
+    }
+
+    private function leerConexion(): ?array
+    {
+        $ruta = $this->rutaConexion();
+        if (!is_file($ruta)) {
+            return null;
+        }
+        if (function_exists('opcache_invalidate')) {
+            @opcache_invalidate($ruta, true);
+        }
+        $datos = require $ruta;
+        return (is_array($datos) && !empty($datos['nombre'])) ? $datos : null;
+    }
+
+    private function olvidarConexion(): void
+    {
+        @unlink($this->rutaConexion());
+        clearstatcache(true, $this->rutaConexion());
+    }
+
+    /** Deja la conexión lista para el resto de la petición y de las siguientes. */
+    private function conectarCon(array $parametros): void
+    {
+        Config::establecerEnMemoria([
             'bd_host'    => $parametros['host'],
             'bd_puerto'  => (int) $parametros['puerto'],
             'bd_nombre'  => $parametros['nombre'],
             'bd_usuario' => $parametros['usuario'],
             'bd_clave'   => $parametros['clave'],
             'bd_prefijo' => $parametros['prefijo'],
-        ] + Config::todo() + [
-            'instalado'    => false,
-            'version'      => APP_VERSION,
-            'zona_horaria' => 'America/Bogota',
-        ];
+        ]);
+        Bd::reiniciar();
+        Bd::conectar();
+        Bd::establecerPrefijo((string) $parametros['prefijo']);
     }
 
     private function paso3(Peticion $peticion, array $estado, bool $reparacion = false): array
@@ -391,7 +581,7 @@ final class Instalador
             $modo = 'actualizar';
         }
 
-        if (!$this->reconectar($estado)) {
+        if (!$this->reconectar()) {
             return [2, ['general' => 'Se perdió la conexión con la base de datos. Vuelve a escribir los datos.'], $estado];
         }
 
@@ -446,10 +636,11 @@ final class Instalador
     /** Paso 5: se crea todo y se escribe la configuración. */
     private function paso5(Peticion $peticion, array $estado): array
     {
-        if (empty($estado['bd']) || empty($estado['admin'])) {
+        $conexion = $this->leerConexion();
+        if ($conexion === null || empty($estado['admin'])) {
             return [2, ['general' => 'Faltan datos de pasos anteriores. Empieza de nuevo.'], $estado];
         }
-        if (!$this->reconectar($estado)) {
+        if (!$this->reconectar()) {
             return [2, ['general' => 'Se perdió la conexión con la base de datos.'], $estado];
         }
 
@@ -481,12 +672,12 @@ final class Instalador
             $configuracion = [
                 'instalado'       => true,
                 'version'         => APP_VERSION,
-                'bd_host'         => Config::obtener('bd_host'),
-                'bd_puerto'       => (int) Config::obtener('bd_puerto', 3306),
-                'bd_nombre'       => Config::obtener('bd_nombre'),
-                'bd_usuario'      => Config::obtener('bd_usuario'),
-                'bd_clave'        => Config::obtener('bd_clave'),
-                'bd_prefijo'      => Config::obtener('bd_prefijo', 'evt_'),
+                'bd_host'         => $conexion['host'],
+                'bd_puerto'       => (int) $conexion['puerto'],
+                'bd_nombre'       => $conexion['nombre'],
+                'bd_usuario'      => $conexion['usuario'],
+                'bd_clave'        => $conexion['clave'],
+                'bd_prefijo'      => $conexion['prefijo'],
                 'llave_cifrado'   => $llave,
                 'zona_horaria'    => 'America/Bogota',
                 'url_base'        => rtrim(\App\Nucleo\App::peticion()->origen()
@@ -545,6 +736,11 @@ final class Instalador
                     . 'Terminar: no se duplicará nada.'], $estado];
             }
 
+            // Terminado: los datos de conexión ya viven en config/config.php y
+            // el archivo del proceso sobra. Dejarlo ahí es una copia más de la
+            // contraseña de la base sin ninguna razón.
+            $this->olvidarConexion();
+
             Instalacion::olvidar();
             Bitacora::registrar('instalacion', 'sistema', $eventoId, [
                 'modo'     => $estado['modo'] ?? 'limpio',
@@ -583,18 +779,18 @@ final class Instalador
     /**
      * Vuelve a abrir la conexión entre un paso y el siguiente.
      *
-     * La contraseña sale de config/config.php, que el paso 2 dejó escrito. La
-     * cookie del asistente solo lleva lo que no es secreto: servidor, base,
+     * La contraseña sale de config/instalacion.php, que el paso 2 dejó escrito.
+     * La cookie del asistente solo lleva lo que no es secreto: servidor, base,
      * usuario y prefijo, para poder repintar el formulario.
      */
-    private function reconectar(array $estado): bool
+    private function reconectar(): bool
     {
-        if (empty($estado['bd']) || Config::obtener('bd_nombre') === null) {
+        $conexion = $this->leerConexion();
+        if ($conexion === null) {
             return false;
         }
         try {
-            Bd::conectar();
-            Bd::establecerPrefijo((string) Config::obtener('bd_prefijo', 'evt_'));
+            $this->conectarCon($conexion);
             return true;
         } catch (\Throwable) {
             return false;

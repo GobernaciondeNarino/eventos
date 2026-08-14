@@ -130,4 +130,46 @@ final class Instalacion
     {
         self::$cache = null;
     }
+
+    /**
+     * Últimos errores que registró la aplicación.
+     *
+     * Siempre se quita la ruta absoluta del servidor. Y cuando la pantalla es
+     * pública —el diagnóstico lo es mientras la plataforma no funcione, porque
+     * si no nadie podría averiguar qué falta— se tapan además los correos y las
+     * cifras largas: en ese registro acaban, por ejemplo, las direcciones de los
+     * asistentes a los que no se les pudo enviar el carnet, y eso no puede verlo
+     * cualquiera que pase por ahí.
+     *
+     * @return array<int, string>
+     */
+    public static function erroresRecientes(int $cuantos = 10, bool $publico = true): array
+    {
+        $archivos = glob(Registro::directorio() . '/*.log.php') ?: [];
+        if (!$archivos) {
+            return [];
+        }
+        rsort($archivos);
+
+        $lineas = [];
+        foreach (array_slice($archivos, 0, 3) as $archivo) {
+            $contenido = @file_get_contents($archivo);
+            if ($contenido === false) {
+                continue;
+            }
+            foreach (explode("\n", $contenido) as $linea) {
+                if (!str_contains($linea, 'ERROR') && !str_contains($linea, 'AVISO')) {
+                    continue;
+                }
+                $linea = str_replace(RAIZ, '…', mb_substr(trim($linea), 0, 400));
+                if ($publico) {
+                    $linea = (string) preg_replace('/[\w.+-]+@[\w.-]+\.\w+/u', '[correo]', $linea);
+                    $linea = (string) preg_replace('/\d{6,}/', '[número]', $linea);
+                }
+                $lineas[] = $linea;
+            }
+        }
+
+        return array_slice(array_reverse($lineas), 0, max(1, $cuantos));
+    }
 }

@@ -17,6 +17,11 @@
  */
 declare(strict_types=1);
 
+// La misma zona horaria que usa la aplicación. Sin esto, entre las 19:00 y la
+// medianoche de Bogotá el guion crea el evento con la fecha de mañana en UTC y
+// después se extraña de que la jornada «todavía no empieza».
+date_default_timezone_set('America/Bogota');
+
 $BASE = rtrim($argv[1] ?? 'http://127.0.0.1:8900/cumbreAI', '/');
 $BD = [
     'nombre'  => getenv('BD_NOMBRE') ?: 'eventos_pruebas',
@@ -215,6 +220,7 @@ echo str_repeat('=', 62) . "\n";
    ========================================================================= */
 titulo('Preparación');
 @unlink($RAIZ . '/config/config.php');
+@unlink($RAIZ . '/config/instalacion.php');
 array_map('unlink', glob($RAIZ . '/almacen/registro/*.log.php') ?: []);
 
 $pdo = new PDO(
@@ -238,6 +244,14 @@ $instalador = new Cliente($BASE);
 
 $html = $instalador->get('/');
 comprobar('sin instalar, todo lleva al asistente', str_contains($html, 'Comprobación del servidor'));
+
+// El diagnóstico es lo único que distingue «nunca se instaló» de «se instaló y
+// algo no se pudo leer». Sin instalación es público, como el propio asistente.
+$html = $instalador->get('/instalar/diagnostico');
+comprobar('el diagnóstico responde sin instalación',
+    str_contains($html, 'La instalación no está utilizable'));
+comprobar('y dice que falta config/config.php',
+    str_contains($html, 'nunca se instaló') || str_contains($html, 'config/config.php'));
 
 $html = $instalador->post('/instalar', ['accion' => 'paso1']);
 comprobar('paso 1 → 2', str_contains($html, 'Conexión a la base de datos'));
@@ -273,9 +287,13 @@ comprobar('detecta que la base está vacía', str_contains($html, 'No hay ningun
 $cookieTrasPaso2 = cargaDeCookie($instalador->cookie('evtic_instalacion'));
 comprobar('la contraseña de la base sale de la cookie en el paso 2',
     !str_contains($cookieTrasPaso2, $BD['clave']));
-comprobar('la escribe en config/config.php sin dar la instalación por terminada',
-    is_file($RAIZ . '/config/config.php')
-    && (require $RAIZ . '/config/config.php')['instalado'] === false);
+comprobar('la guarda en config/instalacion.php',
+    is_file($RAIZ . '/config/instalacion.php')
+    && (require $RAIZ . '/config/instalacion.php')['clave'] === $BD['clave']);
+// Que exista config/config.php significa «instalación terminada». Escribirlo a
+// medias deja el sitio entero redirigiendo al asistente.
+comprobar('y todavía no escribe config/config.php',
+    !is_file($RAIZ . '/config/config.php'));
 
 $html = $instalador->post('/instalar', ['accion' => 'paso3', 'modo' => 'limpio']);
 comprobar('paso 3 → 4', str_contains($html, 'Cuenta administradora'));
@@ -327,6 +345,8 @@ comprobar('escribió config/config.php', is_file($RAIZ . '/config/config.php'));
 
 $config = require $RAIZ . '/config/config.php';
 comprobar('guardó la llave de cifrado', strlen(base64_decode((string) $config['llave_cifrado'], true) ?: '') === 32);
+comprobar('borró el archivo de conexión del proceso',
+    !is_file($RAIZ . '/config/instalacion.php'));
 comprobar('la contraseña de la base no quedó en la cookie de instalación',
     !str_contains(cargaDeCookie($instalador->cookie('evtic_instalacion')), $BD['clave']));
 
@@ -346,6 +366,15 @@ comprobar('la contraseña quedó en hash, no en claro',
 
 $html = $instalador->get('/instalar');
 comprobar('el asistente se cierra tras instalar', str_contains($html, 'ya está instalada'));
+
+// Y el diagnóstico deja de ser público en cuanto hay algo que proteger.
+$curioso = new Cliente($BASE);
+$curioso->get('/instalar/diagnostico', false);
+comprobar('el diagnóstico pasa a exigir administrador',
+    $curioso->codigo === 303 && str_contains($curioso->cabecera('Location'), '/admin/entrar'),
+    (string) $curioso->codigo);
+comprobar('la respuesta pública no trae el contenido del diagnóstico',
+    !str_contains($curioso->cuerpo, 'Archivos y permisos'));
 
 // La queja que originó todo esto: /admin/ con barra final no es una carpeta del
 // servidor, es una ruta de la aplicación que lleva al acceso del equipo.
@@ -465,6 +494,29 @@ comprobar('se puede entrar al panel con la cuenta reparada',
 $html = $recuperado->get('/admin/entrar');
 comprobar('y el aviso de «no hay cuentas» desaparece',
     !str_contains($html, 'Todavía no hay ninguna cuenta'));
+
+/* -------------------------------------------------------------------------
+   La marca «instalado» perdida
+   -------------------------------------------------------------------------
+   Es el fallo que dejó el sitio de producción redirigiendo al asistente: la
+   base completa y la configuración diciendo que no. Que la plataforma insista
+   en el asistente ahí no ayuda a nadie, así que se corrige sola.
+   ------------------------------------------------------------------------- */
+$configuracion = require $RAIZ . '/config/config.php';
+file_put_contents(
+    $RAIZ . '/config/config.php',
+    "<?php\n\nreturn " . var_export(['instalado' => false] + $configuracion, true) . ";\n"
+);
+comprobar('la configuración quedó marcada como no instalada',
+    (require $RAIZ . '/config/config.php')['instalado'] === false);
+
+$tras = new Cliente($BASE);
+$tras->get('/', false);
+comprobar('aun así la portada carga, sin mandar al asistente',
+    $tras->codigo === 200 && !str_contains($tras->cabecera('Location'), '/instalar'),
+    $tras->codigo . ' → ' . $tras->cabecera('Location'));
+comprobar('y la marca queda corregida en el archivo',
+    (require $RAIZ . '/config/config.php')['instalado'] === true);
 
 /* =========================================================================
    2 · Preregistro de un asistente

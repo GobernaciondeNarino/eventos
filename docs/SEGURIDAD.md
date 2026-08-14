@@ -251,11 +251,15 @@ Verificado en las pruebas.
 Ninguna contraseña pasa por la cookie del asistente. La cookie lleva el estado del proceso
 firmado con HMAC, pero firmado no es cifrado: quien la capture puede leer lo que contiene.
 
-- **La de la base de datos** se escribe en `config/config.php` en cuanto la conexión se
-  comprueba, con la instalación marcada como no terminada. Es donde va a acabar de todos
-  modos: una carpeta bloqueada por el servidor y un archivo `.php` que, aunque llegara a
-  servirse como estático, no mostraría nada.
+- **La de la base de datos** se escribe en `config/instalacion.php` en cuanto la conexión se
+  comprueba, y el paso 6 borra ese archivo. Va en una carpeta bloqueada por el servidor y en
+  un archivo `.php` que, aunque llegara a servirse como estático, no mostraría nada.
 - **La del administrador** se convierte a hash Argon2id en el paso 4 y solo viaja así.
+
+Va en un archivo suyo y no dentro de `config/config.php` por una razón que costó un incidente:
+**que exista `config/config.php` tiene que significar «instalación terminada»**. Escribirlo a
+medias, con `instalado => false`, deja el sitio entero redirigiendo al asistente, y desde fuera
+eso es indistinguible de un sitio que nunca se instaló.
 
 La prueba de extremo a extremo lo verifica leyendo la cookie después de cada paso, no solo al
 final: mirar únicamente el estado final daba por bueno un secreto que sí estuvo ahí

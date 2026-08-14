@@ -125,6 +125,41 @@ instalación marcada como completa, la ruta `/instalar` responde 403. No hay que
 de borrar ninguna carpeta. Para reinstalar a propósito, borra `config/config.php` o crea el
 archivo `config/permitir-reinstalar`.
 
+### 3.5.1 Si el asistente no llega a terminar
+
+Dos salidas, y conviene conocerlas antes de necesitarlas.
+
+**Ver qué falta:** <https://tic.narino.gov.co/cumbreAI/instalar/diagnostico>
+
+Dice el estado real —qué archivos hay, qué contesta la base de datos, cuántas cuentas y
+eventos existen, y los últimos errores registrados— sin mostrar ninguna credencial. Mientras
+la plataforma no funcione es una página pública, igual que el propio asistente; en cuanto
+funciona, exige sesión de administrador. Trae un bloque de texto listo para copiar y pegar en
+un correo.
+
+**Instalar sin navegador:** la instalación completa cabe en un solo comando.
+
+```bash
+php herramientas/instalar.php \
+    --bd-nombre=eventos_tic --bd-usuario=eventos_app --bd-clave='…' \
+    --admin-correo=tu@narino.gov.co --admin-nombre="Nombre Apellido" \
+    --evento="Cumbre Tecnológica CIOS Nariño" --inicio=2026-09-01 --dias=3 \
+    --url=https://tic.narino.gov.co/cumbreAI
+```
+
+Usa las mismas clases que el asistente, así que no hay dos caminos que puedan divergir. Va
+contando cada paso y, si algo falla, dice exactamente qué. Es reejecutable: si se interrumpe,
+volver a lanzarlo no duplica nada.
+
+En Plesk sin SSH: **Sitios web y dominios → Tareas programadas → Ejecutar un script PHP**, con
+la ruta `cumbreAI/herramientas/instalar.php` y los argumentos en su campo. Ejecutar una vez y
+borrar la tarea.
+
+> **`config/instalacion.php`.** El paso 2 del asistente guarda ahí los datos de conexión
+> mientras dura el proceso, para que la contraseña de la base no viaje en una cookie. El paso
+> 6 lo borra. Si lo encuentras en un servidor que ya funciona, es de una instalación que quedó
+> a medias y se puede borrar sin miedo.
+
 ### 3.6 Correo saliente
 
 **Plesk → Correo** y crea una cuenta como `no-responder@tic.narino.gov.co`.
@@ -240,6 +275,22 @@ restauró no es una copia.
 
 ## 8. Problemas frecuentes
 
+### Todas las direcciones llevan al asistente de instalación
+
+Significa una cosa concreta: `Config::instalado()` devuelve falso. O no existe
+`config/config.php`, o existe y la marca está en falso.
+
+Abre **`/cumbreAI/instalar/diagnostico`**, que responde aunque el resto del sitio no. Ahí verás
+cuál de los dos casos es, y si la base de datos ya tiene las tablas, la cuenta y el evento.
+
+- **Si la base ya está completa** y solo falta la marca, la plataforma se corrige sola en la
+  siguiente visita. Si por lo que sea no puede escribir el archivo, `php
+  herramientas/instalar.php --reparar` lo hace.
+- **Si falta la cuenta o el evento**, termina el asistente en `/cumbreAI/instalar`, o instala
+  de una vez desde la consola con `php herramientas/instalar.php` (ver 3.5.1).
+- **Si no existe `config/config.php`**, la instalación nunca terminó. Lo mismo: asistente o
+  consola.
+
 ### No puedo entrar al panel
 
 Empieza por saber en qué estado está la instalación. Por consola —en Plesk, **Acceso SSH**, o
@@ -248,6 +299,8 @@ Empieza por saber en qué estado está la instalación. Por consola —en Plesk,
 ```bash
 php herramientas/cuenta.php estado
 ```
+
+O desde el navegador, en `/cumbreAI/instalar/diagnostico`.
 
 Responde qué hay y qué falta: el archivo de configuración, la conexión, las 16 tablas, cuántas
 cuentas administradoras activas existen, cuántos eventos, y el nombre exacto de la tabla donde

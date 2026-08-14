@@ -41,7 +41,11 @@ final class App
         // Sin instalación no hay base de datos a la que conectarse, así que se
         // despacha de una vez: la única ruta que responderá es el asistente,
         // que abre su propia conexión cuando el usuario le da los datos.
-        if (!Config::instalado()) {
+        //
+        // Antes de dar eso por bueno se comprueba si la base ya está lista: una
+        // instalación terminada a la que solo le falta la marca no debe mandar
+        // a todo el mundo al asistente.
+        if (!Config::instalado() && !self::rescatarInstalacion()) {
             self::modoInstalacion($peticion);
             self::despachar($peticion);
         }
@@ -91,6 +95,47 @@ final class App
         if (!str_starts_with($ruta, '/instalar')) {
             Respuesta::redirigirAbsoluto(Url::a('/instalar'));
         }
+    }
+
+    /**
+     * Rescate: la base está lista pero la configuración dice que no.
+     *
+     * Pasó en producción y no es un caso teórico. Si config/config.php tiene
+     * credenciales válidas y al otro lado hay un esquema completo, una cuenta
+     * administradora y un evento, la plataforma funciona: lo único que falta es
+     * la marca. Insistir en el asistente entonces solo consigue que todas las
+     * direcciones redirijan a él sin que nadie entienda por qué.
+     *
+     * Se corrige la marca en disco y se sigue. Es deliberadamente estricto: sin
+     * cuenta con la que entrar no se rescata nada, porque entonces el asistente
+     * sí es lo que hace falta.
+     */
+    private static function rescatarInstalacion(): bool
+    {
+        if (!Config::existe() || Config::obtener('bd_nombre') === null) {
+            return false;
+        }
+
+        try {
+            Bd::conectar();
+        } catch (\Throwable) {
+            return false;
+        }
+
+        if (!Instalacion::completa() || !Instalacion::hayEvento()) {
+            return false;
+        }
+
+        // Que no se pueda escribir el archivo no es motivo para no seguir: la
+        // plataforma funciona igual. Solo se anota cuando la corrección queda
+        // grabada, o si no el registro se llenaría con una línea por petición.
+        if (Config::escribir(['instalado' => true] + Config::todo())) {
+            Registro::aviso('La configuración decía que la plataforma no estaba instalada, pero la '
+                . 'base de datos está completa. Se corrigió la marca y se continuó.');
+        }
+        Config::establecerEnMemoria(['instalado' => true]);
+        Instalacion::olvidar();
+        return true;
     }
 
     /* =====================================================================

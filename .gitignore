@@ -2,8 +2,11 @@
 # instalador y nunca debe llegar al repositorio. Perderla vuelve ilegibles
 # los documentos guardados.
 /config/config.php
+/config/instalacion.php
 /config/permitir-reinstalar
 /config/*.local.php
+/config/.conexion-*.tmp
+/config/.config-*.tmp
 
 # Subidas y datos de cada instalación
 /almacen/logos/*

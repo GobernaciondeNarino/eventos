@@ -39,6 +39,11 @@ $enrutador->ambos('/instalar', [Instalador::class, 'asistente'], 'instalar');
 // muestra lo que se hizo y los siguientes pasos, sin ejecutar nada.
 $enrutador->get('/instalar/listo', [Instalador::class, 'terminado']);
 
+// Diagnóstico. Sin guardia en la tabla porque él mismo decide: mientras la
+// plataforma no funcione es público —igual que el asistente, y sin él no hay
+// forma de saber qué falta—, y en cuanto funciona exige ser administrador.
+$enrutador->get('/instalar/diagnostico', [Instalador::class, 'diagnostico']);
+
 /* =========================================================================
    Público — no exige identificarse
    ========================================================================= */

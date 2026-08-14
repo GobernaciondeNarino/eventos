@@ -35,6 +35,23 @@ base de datos con cotejamiento `utf8mb4_unicode_ci`, subir la carpeta a
 `httpdocs/cumbreAI/`, dar permiso de escritura a `config/` y `almacen/`, activar HTTPS y
 abrir la URL. El asistente hace el resto.
 
+**Sin navegador,** en un solo comando —útil cuando el asistente no llega a terminar:
+
+```bash
+php herramientas/instalar.php \
+    --bd-nombre=eventos_tic --bd-usuario=eventos_app --bd-clave='…' \
+    --admin-correo=tu@narino.gov.co --admin-nombre="Nombre Apellido" \
+    --evento="Cumbre Tecnológica CIOS Nariño" --inicio=2026-09-01 --dias=3 \
+    --url=https://tic.narino.gov.co/cumbreAI
+```
+
+Usa las mismas clases que el asistente, va contando cada paso, y volver a ejecutarlo no
+duplica nada.
+
+**Si algo no cuadra:** `/instalar/diagnostico` dice el estado real —archivos, base de datos,
+cuentas, eventos y los últimos errores— sin mostrar credenciales. Es público mientras la
+plataforma no funcione, y exige administrador en cuanto funciona.
+
 **En local, para probar:**
 
 ```bash
