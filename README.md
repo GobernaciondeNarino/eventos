@@ -228,6 +228,11 @@ php pruebas/extremo-a-extremo.php
 # Deja la base de pruebas vacía y vuelve a instalarla.
 php pruebas/instalacion.php
 
+# El hash de las contraseñas del equipo. Vale en las dos compilaciones de
+# Argon2 que trae PHP: la libargon2 suelta y la que va dentro de libsodium,
+# que solo admite un hilo.
+php pruebas/claves.php
+
 # El generador de QR
 php pruebas/qr-php-contra-js.php          # servidor contra referencia JS
 python3 pruebas/qr-contra-referencia.py   # JS contra la librería de Python

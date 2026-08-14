@@ -132,17 +132,73 @@ final class Cripto
         return str_pad((string) random_int(0, $maximo), $digitos, '0', STR_PAD_LEFT);
     }
 
+    /**
+     * Parámetros de Argon2id, en un solo sitio.
+     *
+     * `threads => 1` a propósito, y no es una rebaja.
+     *
+     * PHP puede traer Argon2 de dos sitios: la biblioteca libargon2 suelta, o
+     * la que va dentro de libsodium. La segunda **solo admite un hilo**, y
+     * pedirle más no degrada nada: lanza
+     * «ValueError: A thread value other than 1 is not supported by this
+     * implementation». Desde fuera las dos compilaciones son idénticas —misma
+     * versión de PHP, misma constante PASSWORD_ARGON2ID, mismo phpinfo—, así
+     * que el fallo solo aparece en el servidor que tocó, y allí revienta en el
+     * paso 4 del asistente: justo al convertir la contraseña del administrador.
+     * La instalación se quedaba con las tablas creadas, la tabla de usuarios
+     * vacía y sin manera de entrar. Pasó en producción.
+     *
+     * Un hilo es además el valor por omisión de PHP y el que recomienda OWASP
+     * para Argon2id. El paralelismo no endurece el hash: reparte el mismo
+     * trabajo entre varios núcleos. Lo que protege es el coste en memoria, que
+     * se mantiene en 64 MiB.
+     */
+    private const ARGON = [
+        'memory_cost' => 65536,   // 64 MiB
+        'time_cost'   => 4,
+        'threads'     => 1,
+    ];
+
+    /** @return array{0: string|int, 1: array<string, int>} Algoritmo y opciones vigentes. */
+    public static function algoritmoDeClave(): array
+    {
+        return defined('PASSWORD_ARGON2ID')
+            ? [PASSWORD_ARGON2ID, self::ARGON]
+            : [PASSWORD_BCRYPT, ['cost' => 12]];
+    }
+
     public static function hashClave(string $clave): string
     {
-        // Argon2id si está compilado; si no, bcrypt, que sigue siendo aceptable.
-        if (defined('PASSWORD_ARGON2ID')) {
-            return password_hash($clave, PASSWORD_ARGON2ID, [
-                'memory_cost' => 65536,
-                'time_cost'   => 4,
-                'threads'     => 2,
+        [$algoritmo, $opciones] = self::algoritmoDeClave();
+
+        try {
+            return password_hash($clave, $algoritmo, $opciones);
+        } catch (\Throwable $e) {
+            // Cinturón y tirantes. Los parámetros de arriba funcionan en las dos
+            // compilaciones conocidas, pero esta llamada es la que decide si
+            // alguien puede entrar a la plataforma: si una compilación rara
+            // rechaza algo, es mejor un hash con bcrypt —que sigue siendo
+            // aceptable— que una instalación muerta sin ninguna cuenta.
+            Registro::error('password_hash falló con el algoritmo preferido; se usa bcrypt', [
+                'motivo' => get_class($e) . ': ' . $e->getMessage(),
             ]);
+            return password_hash($clave, PASSWORD_BCRYPT, ['cost' => 12]);
         }
-        return password_hash($clave, PASSWORD_BCRYPT, ['cost' => 12]);
+    }
+
+    /** ¿Este hash se hizo con parámetros viejos y conviene rehacerlo? */
+    public static function claveNecesitaRehash(string $hash): bool
+    {
+        [$algoritmo, $opciones] = self::algoritmoDeClave();
+
+        // Un hash bcrypt en un servidor con Argon2id no se rehace solo: puede
+        // venir de una compilación que rechazó Argon2, y entonces reescribirlo
+        // en cada acceso es trabajo perdido y ruido en la base.
+        if (str_starts_with($hash, '$2y$') && $algoritmo !== PASSWORD_BCRYPT) {
+            return false;
+        }
+
+        return password_needs_rehash($hash, $algoritmo, $opciones);
     }
 
     public static function verificarClave(string $clave, string $hash): bool

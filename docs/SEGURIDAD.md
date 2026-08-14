@@ -124,6 +124,25 @@ hash sin clave, quien obtenga la tabla puede probarlas todas en minutos.
 El código de acceso se guarda como SHA-256, nunca en claro, vence en diez minutos y sirve una
 sola vez. Pedir uno nuevo invalida el anterior.
 
+**Argon2id con `m=65536, t=4, p=1`.** Los parámetros están en un solo sitio,
+`Cripto::ARGON`, y el hilo único es deliberado. PHP puede traer Argon2 de dos bibliotecas
+distintas —`libargon2` suelta, o la que va dentro de `libsodium`— y **la de libsodium solo
+admite un hilo**: pedirle más no degrada el hash, lanza un `ValueError`. Las dos
+compilaciones son indistinguibles desde fuera: misma versión de PHP, misma constante
+`PASSWORD_ARGON2ID`, mismo `phpinfo()`.
+
+El código pedía dos hilos. Funcionó en desarrollo y reventó en el servidor del despliegue,
+en el paso 4 del asistente, justo al convertir la contraseña del administrador: la
+instalación quedó con las dieciséis tablas creadas, `evt_usuario` vacía y sin ninguna forma
+de entrar. Un hilo es además el valor por omisión de PHP y el que recomienda OWASP; el
+paralelismo no endurece nada, solo reparte el mismo trabajo entre núcleos. Lo que protege es
+el coste en memoria, que sigue en 64 MiB.
+
+`pruebas/claves.php` lo fija por tres vías: los parámetros que se piden, la forma del hash
+resultante (`p=1`), y un barrido de `app/` que falla si algún archivo vuelve a pedir más de
+un hilo. Si `password_hash` falla igualmente en alguna compilación rara, se cae a bcrypt con
+coste 12 y se anota: un hash aceptable es mejor que una instalación sin ninguna cuenta.
+
 ### 2.8 Sesiones propias, en la base de datos
 
 No se usa la sesión de PHP. En un alojamiento compartido los archivos de sesión suelen quedar
@@ -465,6 +484,7 @@ conviene decirlo con claridad en la pantalla de privacidad.
 ```bash
 php pruebas/extremo-a-extremo.php      # 189 comprobaciones, 27 de seguridad
 php pruebas/instalacion.php            # el asistente, y qué se ve cuando falla
+php pruebas/claves.php                 # parámetros de Argon2id y rehash
 php pruebas/totp.php                   # segundo factor contra el RFC 6238
 php pruebas/correo.php                 # formato MIME e inyección de cabeceras
 php pruebas/svg-saneado.php            # logos SVG con código dentro
@@ -500,6 +520,9 @@ Lo que comprueban las de seguridad, concretamente:
 - El modo reparación no ofrece borrar tablas, y no borra datos aunque se envíe a mano.
 - Antes de instalar, un fallo enseña su causa; después de instalar, no enseña nada.
 - El diagnóstico cuenta las tablas sin filtrar la contraseña de la base de datos.
+- La cuenta del paso 4 queda en la tabla con su hash, y con ella se entra al panel.
+- El hash de contraseñas pide un solo hilo, que es lo que admiten las dos compilaciones
+  de Argon2 que trae PHP.
 
 ---
 

@@ -371,8 +371,49 @@ comprobar('y config/instalacion.php se borró: la contraseña no se queda duplic
     !is_file($RAIZ . '/config/instalacion.php'));
 
 $conexion = pdo($BD);
-comprobar('evt_usuario tiene la cuenta administradora',
-    (int) $conexion->query("SELECT COUNT(*) FROM evt_usuario WHERE rol = 'administrador' AND estado = 'activo'")->fetchColumn() === 1);
+
+/* La cuenta que se escribió en el paso 4, mirada campo por campo. Es lo que se
+   quedó sin crear en producción, así que no basta con contar filas. */
+$cuenta = $conexion->query("SELECT * FROM evt_usuario WHERE correo = 'admin.pruebas@narino.gov.co'")
+    ->fetch(PDO::FETCH_ASSOC);
+
+comprobar('evt_usuario tiene la cuenta que se escribió en el paso 4', is_array($cuenta));
+comprobar('con el nombre tal cual se tecleó',
+    ($cuenta['nombre'] ?? '') === 'María Fernanda Rojas', (string) ($cuenta['nombre'] ?? '—'));
+comprobar('con rol administrador', ($cuenta['rol'] ?? '') === 'administrador', (string) ($cuenta['rol'] ?? '—'));
+comprobar('activa', ($cuenta['estado'] ?? '') === 'activo', (string) ($cuenta['estado'] ?? '—'));
+comprobar('sin obligación de cambiar la contraseña: la eligió quien instaló',
+    (int) ($cuenta['debe_cambiar'] ?? 1) === 0);
+comprobar('la contraseña quedó en hash, no en claro',
+    !str_contains((string) ($cuenta['clave_hash'] ?? ''), 'ClaveDePrueba2026!'));
+comprobar('y ese hash verifica la contraseña del paso 4',
+    password_verify('ClaveDePrueba2026!', (string) ($cuenta['clave_hash'] ?? '')));
+comprobar('el hash pide un solo hilo: la compilación de libsodium no admite más',
+    !str_starts_with((string) ($cuenta['clave_hash'] ?? ''), '$argon2')
+    || str_contains((string) ($cuenta['clave_hash'] ?? ''), ',p=1$'),
+    (string) ($cuenta['clave_hash'] ?? '—'));
+
+// Y que con esa cuenta se pueda entrar de verdad, que es para lo que existe.
+$puerta = new Navegador($BASE);
+$puerta->ir('/admin/entrar');
+$r = $puerta->ir('/admin/entrar', [
+    'correo' => 'admin.pruebas@narino.gov.co',
+    'clave'  => 'ClaveDePrueba2026!',
+]);
+comprobar('con esa cuenta se entra al panel',
+    $r['codigo'] === 303 && !str_contains($r['destino'], 'entrar'),
+    $r['codigo'] . ' ' . $r['destino']);
+
+$r = $puerta->ir('/admin');
+comprobar('y el panel responde', $r['codigo'] === 200 || $r['codigo'] === 303, 'código ' . $r['codigo']);
+
+comprobar('una contraseña equivocada no entra',
+    (static function () use ($BASE): bool {
+        $n = new Navegador($BASE);
+        $n->ir('/admin/entrar');
+        $x = $n->ir('/admin/entrar', ['correo' => 'admin.pruebas@narino.gov.co', 'clave' => 'otraCosaLarga2026']);
+        return $x['codigo'] !== 303 || str_contains($x['destino'], 'entrar');
+    })());
 comprobar('evt_evento tiene el evento', (int) $conexion->query('SELECT COUNT(*) FROM evt_evento')->fetchColumn() === 1);
 comprobar('evt_evento_dia tiene una jornada por día',
     (int) $conexion->query('SELECT COUNT(*) FROM evt_evento_dia')->fetchColumn() === 3);

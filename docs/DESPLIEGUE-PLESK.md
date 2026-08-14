@@ -421,6 +421,17 @@ de Apache y nginx**, y verifica que se permitan los `.htaccess`.
 **«No se pudo escribir config/config.php».**
 Permisos de `config/`. Debe ser escribible por el usuario del dominio.
 
+**«A thread value other than 1 is not supported by this implementation».**
+Corregido en esta versión; si lo ves, el servidor tiene código viejo. Era un `ValueError` de
+`password_hash()` en el paso 4 del asistente, al convertir la contraseña del administrador.
+PHP puede traer Argon2 de dos sitios —la biblioteca `libargon2` suelta o la que va dentro de
+`libsodium`— y **la de libsodium solo admite un hilo**. Desde fuera las dos compilaciones son
+idénticas: misma versión de PHP, misma constante `PASSWORD_ARGON2ID`, mismo `phpinfo()`. El
+código pedía dos hilos, así que funcionaba en unos servidores y reventaba en otros, dejando la
+instalación con las tablas creadas y `evt_usuario` vacía. Ahora se pide **un** hilo, que es el
+valor por omisión de PHP y el que recomienda OWASP; lo que protege el hash es el coste en
+memoria (64 MiB), que no cambió.
+
 **Las tildes salen como signos raros.**
 El cotejamiento de la base no es utf8mb4. Créala de nuevo con
 `utf8mb4_unicode_ci` y vuelve a instalar.
