@@ -94,11 +94,18 @@ final class Cliente
         return $this->pedir('HEAD', $ruta, null, false);
     }
 
+    /** Último testigo visto en un formulario, como haría un navegador. */
+    private string $testigo = '';
+
     public function post(string $ruta, array $datos, bool $seguirRedireccion = true): string
     {
-        // El testigo se toma de la cookie, igual que hace el navegador.
-        if (!isset($datos['_testigo']) && isset($this->cookies['evtic_csrf'])) {
-            $datos['_testigo'] = $this->cookies['evtic_csrf'];
+        // El testigo sale del formulario de la última página, que es de donde
+        // lo toma un navegador. Sacarlo de la cookie funcionaba solo mientras el
+        // testigo fuera la cookie; con sesión abierta se deriva de ella.
+        if (!isset($datos['_testigo'])) {
+            $datos['_testigo'] = $this->testigo !== ''
+                ? $this->testigo
+                : ($this->cookies['evtic_csrf'] ?? '');
         }
         return $this->pedir('POST', $ruta, $datos, $seguirRedireccion);
     }
@@ -128,6 +135,10 @@ final class Cliente
         $this->cabeceras = $http_response_header ?? [];
         $this->codigo = $this->codigoDe($this->cabeceras);
         $this->guardarCookies($this->cabeceras);
+
+        if (preg_match('/name="_testigo" value="([a-f0-9]{64})"/', $this->cuerpo, $m)) {
+            $this->testigo = $m[1];
+        }
 
         if ($seguir && in_array($this->codigo, [301, 302, 303, 307, 308], true) && $saltos < 5) {
             $destino = $this->cabecera('Location');
@@ -871,6 +882,20 @@ comprobar('un asistente tampoco entra al backoffice',
 $sinTestigo = new Cliente($BASE);
 $sinTestigo->get('/preregistro');
 $html = $sinTestigo->post('/preregistro', ['_testigo' => 'falso', 'correo' => 'x@y.co', 'nombre' => 'Prueba XSS']);
+// Con sesión abierta, el testigo se deriva de ella. Un valor plantado en la
+// cookie —cosa que puede hacer cualquier subdominio hermano de narino.gov.co—
+// ya no sirve para forjar un envío.
+$plantado = new Cliente($BASE);
+$plantado->get('/admin/entrar');
+$plantado->post('/admin/entrar', [
+    'correo' => 'aerazo@narino.gov.co',
+    'clave'  => 'una frase larga y facil de recordar',
+]);
+$html = $plantado->post('/admin/identidad',
+    ['preset' => 'tic-nocturno', '_testigo' => str_repeat('a', 64)]);
+comprobar('un testigo plantado en la cookie no vale con sesión abierta',
+    str_contains($html, 'demasiado tiempo abierta'));
+
 comprobar('un envío con testigo falso se rechaza', str_contains($html, 'demasiado tiempo abierta'));
 
 foreach ([

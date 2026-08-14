@@ -40,6 +40,12 @@ defined('EVENTOS_TIC') || exit;
       <button class="btn btn--primary btn--block btn--lg" type="submit">Entrar</button>
 
       <p class="help">
+        Mira también la carpeta de correo no deseado. Si en unos minutos no llega nada,
+        acércate al punto de información: puede ser un problema del correo del servidor, y
+        desde ahí pueden registrar tu ingreso a mano con tu documento.
+      </p>
+
+      <p class="help">
         ¿No llegó? Revisa la carpeta de correo no deseado o
         <a href="<?= e(u('/entrar')) ?>">pide otro código</a>.
       </p>

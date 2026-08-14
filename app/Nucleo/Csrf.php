@@ -32,6 +32,13 @@ final class Csrf
             return self::$token;
         }
 
+        // Con sesión abierta, el testigo se deriva de ella y no hace falta
+        // cookie: es lo que impide que un subdominio hermano fije el valor.
+        $atado = self::atadoALaSesion();
+        if ($atado !== '') {
+            return self::$token = $atado;
+        }
+
         $actual = $_COOKIE[self::COOKIE] ?? '';
         if (is_string($actual) && preg_match('/^[a-f0-9]{64}$/', $actual)) {
             return self::$token = $actual;
@@ -56,12 +63,49 @@ final class Csrf
         return '<input type="hidden" name="' . self::CAMPO . '" value="' . htmlspecialchars(self::token(), ENT_QUOTES) . '">';
     }
 
+    /**
+     * Testigo atado a la sesión, cuando hay sesión.
+     *
+     * La cookie de doble envío sola tiene un punto débil que en un dominio como
+     * narino.gov.co no es teórico: cualquier subdominio puede escribir una
+     * cookie para el dominio padre. Quien controle un sitio hermano puede fijar
+     * el valor del testigo en el navegador de la víctima y después enviar un
+     * formulario con ese mismo valor: los dos coinciden y la comprobación pasa.
+     *
+     * Atándolo a la sesión eso deja de servir: el testigo que vale es el que se
+     * deriva del identificador de sesión de la víctima, y ese el atacante no lo
+     * conoce. Sin sesión no hay nada que atar —ni nada que abusar en nombre de
+     * nadie—, así que se mantiene la comparación con la cookie.
+     */
+    private static function atadoALaSesion(): string
+    {
+        foreach (['admin', 'asistente'] as $tipo) {
+            $sesion = Sesion::actual($tipo);
+            if ($sesion) {
+                return hash_hmac(
+                    'sha256',
+                    'csrf|' . $tipo . '|' . $sesion['id'],
+                    (string) Config::obtener('llave_cifrado', 'sin-llave')
+                );
+            }
+        }
+        return '';
+    }
+
     public static function valido(Peticion $peticion): bool
     {
         $enviado = $peticion->campo(self::CAMPO);
-        $esperado = $_COOKIE[self::COOKIE] ?? '';
+        if ($enviado === '') {
+            return false;
+        }
 
-        if ($enviado === '' || !is_string($esperado) || $esperado === '') {
+        $atado = self::atadoALaSesion();
+        if ($atado !== '') {
+            return hash_equals($atado, $enviado);
+        }
+
+        $esperado = $_COOKIE[self::COOKIE] ?? '';
+        if (!is_string($esperado) || $esperado === '') {
             return false;
         }
         return hash_equals($esperado, $enviado);
