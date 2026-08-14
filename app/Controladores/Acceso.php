@@ -339,9 +339,8 @@ final class Acceso
         if ($peticion->esPost()) {
             Limite::exigir('acceso_admin', 'totp:' . $usuario['correo']);
             $codigo = $peticion->campo('codigo');
-            $secreto = Usuario::secretoTotp($usuario);
 
-            if ($secreto !== '' && Totp::verificar($secreto, $codigo)) {
+            if (Usuario::consumirTotp($usuario, $codigo)) {
                 Limite::limpiar('acceso_admin', 'totp:' . $usuario['correo']);
                 // Rotar tras superar el segundo factor: la sesión que existía
                 // antes de completar la identificación no debe seguir sirviendo.
@@ -399,7 +398,14 @@ final class Acceso
                 Sesion::guardarDatos('admin', ['pendiente_2fa' => false, 'destino' => $datos['destino'] ?? '/admin']);
                 Usuario::registrarAcceso((int) $usuario['id']);
                 Bitacora::registrar('segundo_factor_activado', 'usuario', (int) $usuario['id']);
-                Respuesta::redirigir('/admin', 'Segundo factor activado.');
+                // Se vuelve a donde iba. Un operador que escanea un carnet en
+                // la puerta y se topa con el alta del segundo factor terminaba
+                // en el panel, teniendo que volver a escanear con la fila
+                // esperando.
+                Respuesta::redirigir(
+                    Url::destinoSeguro((string) ($datos['destino'] ?? '/admin'), '/admin'),
+                    'Segundo factor activado.'
+                );
             }
             $errores['codigo'] = 'El código no coincide. Vuelve a intentarlo con el siguiente que muestre la aplicación.';
         }

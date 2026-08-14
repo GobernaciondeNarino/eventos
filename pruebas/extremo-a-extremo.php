@@ -503,8 +503,17 @@ comprobar('ve las 16 tablas que ya existen',
     str_contains($html, 'Ya existen 16 tablas'),
     str_contains($html, 'No hay ninguna tabla') ? 'dijo que no había ninguna' : '');
 
+// Se quita una columna a mano para comprobar el camino de actualización: al
+// subir de versión, el modo «actualizar» tiene que agregar lo que falte sin
+// tocar los datos. Es lo que va a pasar en cada actualización de la plataforma.
+$pdo->exec("ALTER TABLE {$BD['prefijo']}usuario DROP COLUMN totp_ultimo");
+$columnas = $pdo->query("SHOW COLUMNS FROM {$BD['prefijo']}usuario LIKE 'totp_ultimo'")->fetchAll();
+comprobar('se quitó una columna para probar la actualización', $columnas === []);
+
 // Aunque se envíe a mano, «limpio» no se aplica en una reparación.
 $html = $perdido->post('/instalar', ['accion' => 'paso3', 'modo' => 'limpio']);
+$columnas = $pdo->query("SHOW COLUMNS FROM {$BD['prefijo']}usuario LIKE 'totp_ultimo'")->fetchAll();
+comprobar('el modo actualizar devuelve la columna que faltaba', count($columnas) === 1);
 comprobar('paso 3 de la reparación', str_contains($html, 'Cuenta administradora'));
 comprobar('no borró nada de lo que ya había',
     $anotaciones() >= $antesDeReparar, $anotaciones() . ' de ' . $antesDeReparar);
@@ -1152,9 +1161,21 @@ $html = $vuelve->get("/c/$tokenCarnet");
 comprobar('con el segundo factor a medias no se ve la ficha de acreditación',
     !str_contains($html, 'Acreditar') && !str_contains($html, 'Registrar ingreso'));
 
-$html = $vuelve->post('/admin/verificar', ['codigo' => $codigoDe($secreto)]);
+$codigoUsado = $codigoDe($secreto);
+$html = $vuelve->post('/admin/verificar', ['codigo' => $codigoUsado]);
 comprobar('con el código correcto se entra',
     str_contains($html, 'Indicadores') || str_contains($html, 'Panel'));
+
+// El RFC 6238 (§5.2) pide no admitir dos veces el mismo código: vale hasta
+// noventa segundos y en ese rato alguien que lo haya visto puede repetirlo.
+$repite = new Cliente($BASE);
+$repite->get('/admin/entrar');
+$repite->post('/admin/entrar', [
+    'correo' => 'aerazo@narino.gov.co',
+    'clave'  => 'una frase larga y facil de recordar',
+]);
+$html = $repite->post('/admin/verificar', ['codigo' => $codigoUsado]);
+comprobar('el mismo código no sirve dos veces', str_contains($html, 'no coincide'));
 
 $vuelve->get('/admin', false);
 comprobar('y el panel ya no rebota a la verificación', $vuelve->codigo === 200,

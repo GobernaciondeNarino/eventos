@@ -171,6 +171,20 @@ final class Escaneo
             if ((int) $yo['id'] === (int) $credencial['persona_id']) {
                 Respuesta::redirigir('/carnet', 'Ese es tu propio carnet.');
             }
+            // La plataforma es multievento. Sin esta comprobación, el carnet
+            // de otro evento —fotografiado, que es justo lo que este módulo da
+            // por hecho que pasa— enseñaba los datos de contacto de alguien que
+            // no comparte evento con quien mira, y guardarContacto() sí lo
+            // rechazaba: se veía lo que después no se podía hacer.
+            if ((int) $credencial['evento_id'] !== (int) $yo['evento_id']) {
+                Respuesta::vista('publico/escaneo-resultado', [
+                    'titulo'     => 'Credencial de otro evento',
+                    'pantalla'   => '',
+                    'estado'     => 'aviso',
+                    'encabezado' => 'Ese carnet es de otro evento',
+                    'mensaje'    => 'Solo se pueden intercambiar contactos entre asistentes del mismo evento.',
+                ], 403);
+            }
             $this->pantallaContacto($credencial, $yo);
         }
 

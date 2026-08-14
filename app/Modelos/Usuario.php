@@ -201,6 +201,30 @@ final class Usuario
     }
 
     /**
+     * Comprueba el código del segundo factor y lo consume.
+     *
+     * Un código vale hasta noventa segundos con la tolerancia de reloj. Sin
+     * consumirlo, quien lo vea por encima del hombro puede usarlo otra vez
+     * dentro de esa ventana. Se guarda el intervalo aceptado y no se admite
+     * ninguno anterior ni el mismo (RFC 6238 §5.2).
+     */
+    public static function consumirTotp(array $usuario, string $codigo): bool
+    {
+        $secreto = self::secretoTotp($usuario);
+        if ($secreto === '') {
+            return false;
+        }
+
+        $intervalo = \App\Nucleo\Totp::intervaloValido($secreto, $codigo);
+        if ($intervalo === null || $intervalo <= (int) ($usuario['totp_ultimo'] ?? 0)) {
+            return false;
+        }
+
+        Bd::ejecutar('UPDATE {usuario} SET totp_ultimo = ? WHERE id = ?', [$intervalo, $usuario['id']]);
+        return true;
+    }
+
+    /**
      * ¿Esta cuenta necesita segundo factor?
      *
      * Obligatorio para administradores: son quienes pueden exportar datos

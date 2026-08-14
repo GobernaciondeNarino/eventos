@@ -51,18 +51,34 @@ final class Totp
      */
     public static function verificar(string $secreto, string $codigo, int $ventana = 1): bool
     {
+        return self::intervaloValido($secreto, $codigo, $ventana) !== null;
+    }
+
+    /**
+     * Igual que verificar(), pero devuelve el intervalo con el que cuadró.
+     *
+     * Sirve para no admitir dos veces el mismo código. El RFC 6238 (§5.2) lo
+     * pide: el código vale hasta noventa segundos con la tolerancia de reloj, y
+     * en ese rato alguien que lo haya visto —por encima del hombro, en una
+     * captura— puede volver a usarlo. Guardando el último intervalo aceptado,
+     * la segunda vez ya no entra.
+     *
+     * @return int|null El intervalo que cuadró, o null si ninguno.
+     */
+    public static function intervaloValido(string $secreto, string $codigo, int $ventana = 1): ?int
+    {
         $codigo = preg_replace('/\D/', '', $codigo) ?? '';
         if (strlen($codigo) !== self::DIGITOS) {
-            return false;
+            return null;
         }
 
         $contador = intdiv(time(), self::PERIODO);
         for ($desvio = -$ventana; $desvio <= $ventana; $desvio++) {
             if (hash_equals(self::codigo($secreto, $contador + $desvio), $codigo)) {
-                return true;
+                return $contador + $desvio;
             }
         }
-        return false;
+        return null;
     }
 
     private static function codigo(string $secreto, int $contador): string

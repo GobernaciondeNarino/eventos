@@ -15,7 +15,7 @@ use App\Nucleo\Bd;
  */
 final class Esquema
 {
-    public const VERSION = '1.0.0';
+    public const VERSION = '1.1.0';
 
     /**
      * @return array<string, array{nota: string, columnas: array<string,string>, llaves: array<int,string>}>
@@ -233,6 +233,7 @@ final class Esquema
                     'puesto'            => "VARCHAR(80) NOT NULL DEFAULT ''",
                     'totp_secreto'      => 'VARBINARY(255) NULL',
                     'totp_confirmado'   => 'TINYINT(1) NOT NULL DEFAULT 0',
+                    'totp_ultimo'       => 'INT UNSIGNED NOT NULL DEFAULT 0',
                     'estado'            => "ENUM('activo','suspendido') NOT NULL DEFAULT 'activo'",
                     'debe_cambiar'      => 'TINYINT(1) NOT NULL DEFAULT 0',
                     'ultimo_acceso'     => 'DATETIME NULL',
