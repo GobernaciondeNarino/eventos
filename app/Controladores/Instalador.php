@@ -187,6 +187,13 @@ final class Instalador
             'SCRIPT_NAME'        => (string) ($_SERVER['SCRIPT_NAME'] ?? ''),
             'REQUEST_URI'        => (string) ($_SERVER['REQUEST_URI'] ?? ''),
             'HTTPS detectado'    => $peticion->esSegura() ? 'sí' : 'no',
+            'Dirección del visitante' => $peticion->ip()
+                . ($peticion->detrasDeProxySinConfigurar()
+                    ? '  ← es la del proxy, no la del visitante'
+                    : ''),
+            'Proxies declarados' => Config::obtener('proxies_confiables', [])
+                ? implode(', ', (array) Config::obtener('proxies_confiables'))
+                : 'ninguno',
             'Servidor web'       => (string) ($_SERVER['SERVER_SOFTWARE'] ?? 'desconocido'),
             'Zona horaria'       => date_default_timezone_get() . ' · ' . date('Y-m-d H:i:s'),
             'Usuario del proceso' => function_exists('posix_geteuid') && function_exists('posix_getpwuid')
@@ -686,7 +693,7 @@ final class Instalador
                 'correo_nombre'   => $nombreEvento,
                 'modo_correo'     => function_exists('mail') ? 'php' : 'registro',
                 'exigir_2fa_admin' => (bool) ($estado['admin']['exigir_2fa'] ?? true),
-                'proxies_confiables' => [],
+                'proxies_confiables' => $this->proxiesDetectados(),
                 'depurar'         => false,
                 'instalado_en'    => date('c'),
             ];
@@ -768,6 +775,32 @@ final class Instalador
             \App\Nucleo\Registro::excepcion($e);
             return [5, ['general' => 'La instalación falló: ' . $e->getMessage()], $estado];
         }
+    }
+
+    /**
+     * El proxy que tenemos delante, si es que hay uno.
+     *
+     * En Plesk casi siempre hay nginx por delante de Apache. Sin declararlo, la
+     * aplicación ve su dirección en lugar de la del visitante y el límite de
+     * intentos pasa a ser uno solo para todo el mundo: veinte accesos fallidos
+     * de cualquiera dejan fuera al equipo entero.
+     *
+     * Solo se confía en la dirección desde la que llega la petición, y solo si
+     * es interna —loopback o rango privado— y además viene una cabecera de
+     * reenvío. Nadie llega desde internet con una dirección así, de modo que
+     * esto no se puede provocar desde fuera. Cualquier otro caso se deja vacío,
+     * porque confiar en X-Forwarded-For sin más permitiría a cualquiera falsear
+     * su origen y saltarse los bloqueos.
+     *
+     * @return array<int, string>
+     */
+    private function proxiesDetectados(): array
+    {
+        if (!\App\Nucleo\App::peticion()->detrasDeProxySinConfigurar()) {
+            return [];
+        }
+        $remota = (string) ($_SERVER['REMOTE_ADDR'] ?? '');
+        return $remota !== '' ? [$remota] : [];
     }
 
     private function dominioDelSitio(): string

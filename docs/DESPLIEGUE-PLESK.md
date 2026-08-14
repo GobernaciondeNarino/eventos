@@ -208,15 +208,23 @@ solo uso, sin contraseña.
 
 Plesk suele poner nginx como proxy de Apache. Dos consecuencias:
 
-**La IP real llega en una cabecera.** Para que el límite de intentos y la bitácora vean la
-IP del visitante y no la del proxy, declara el proxy en `config/config.php`:
+**La IP real llega en una cabecera.** El instalador lo detecta y lo deja configurado: si la
+petición llega desde una dirección interna —loopback o rango privado— y además trae una
+cabecera de reenvío, esa dirección se anota como proxy de confianza. Queda así en
+`config/config.php`:
 
 ```php
-'proxies_confiables' => ['127.0.0.1', '::1'],
+'proxies_confiables' => ['127.0.0.1'],
 ```
 
-Solo se hace caso a `X-Forwarded-For` cuando la conexión viene de una de esas direcciones.
-Si se confiara siempre, cualquiera podría falsear su origen y saltarse los bloqueos.
+Solo se hace caso a `X-Forwarded-For` o a `CF-Connecting-IP` cuando la conexión viene de una de
+esas direcciones. Si se confiara siempre, cualquiera podría falsear su origen y saltarse los
+bloqueos; y si no se confiara nunca, **todos los visitantes compartirían una sola dirección y el
+límite de intentos pasaría a ser uno solo para todo el mundo**: veinte accesos fallidos de
+cualquiera dejarían fuera al equipo entero.
+
+Si la instalación es anterior o la detección no acertó, `/cumbreAI/instalar/diagnostico` lo
+avisa en rojo y muestra la línea exacta que hay que poner.
 
 **Algunos estáticos no pasan por Apache.** Si en Plesk está activada la opción «Servir
 archivos estáticos directamente por nginx», las reglas del `.htaccess` no se aplican a esos

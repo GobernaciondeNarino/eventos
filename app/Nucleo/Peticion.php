@@ -116,6 +116,15 @@ final class Peticion
         $confiables = Config::obtener('proxies_confiables', []);
 
         if ($confiables && in_array($remota, $confiables, true)) {
+            // Con Cloudflare por delante, CF-Connecting-IP trae la dirección
+            // del visitante y Cloudflare descarta la que mande el cliente. Se
+            // mira primero porque X-Forwarded-For puede llegar con varios
+            // saltos encadenados.
+            $directa = trim((string) ($_SERVER['HTTP_CF_CONNECTING_IP'] ?? ''));
+            if (filter_var($directa, FILTER_VALIDATE_IP)) {
+                return $directa;
+            }
+
             $reenviada = $_SERVER['HTTP_X_FORWARDED_FOR'] ?? '';
             foreach (explode(',', $reenviada) as $candidata) {
                 $candidata = trim($candidata);
@@ -125,6 +134,44 @@ final class Peticion
             }
         }
         return filter_var($remota, FILTER_VALIDATE_IP) ? $remota : '0.0.0.0';
+    }
+
+    /**
+     * ¿Estamos viendo la dirección de un proxy en vez de la del visitante?
+     *
+     * Importa más de lo que parece. Si todas las peticiones llegan con la misma
+     * dirección —la del nginx que Plesk pone por delante—, el límite de intentos
+     * deja de ser por visitante y pasa a ser uno solo para todo el mundo: basta
+     * con que alguien falle veinte accesos para dejar fuera al equipo entero.
+     *
+     * Se detecta por lo que ya se sabe: la conexión viene de una dirección
+     * local o privada y además llega una cabecera de reenvío. Un visitante de
+     * internet no puede presentarse con una dirección de esas.
+     */
+    public function detrasDeProxySinConfigurar(): bool
+    {
+        $remota = (string) ($_SERVER['REMOTE_ADDR'] ?? '');
+        if ($remota === '' || Config::obtener('proxies_confiables', [])) {
+            return false;
+        }
+        $hayReenvio = ($_SERVER['HTTP_X_FORWARDED_FOR'] ?? '') !== ''
+            || ($_SERVER['HTTP_CF_CONNECTING_IP'] ?? '') !== ''
+            || ($_SERVER['HTTP_X_REAL_IP'] ?? '') !== '';
+
+        return $hayReenvio && self::esDireccionInterna($remota);
+    }
+
+    /** Loopback o rango privado: nadie llega desde internet con una de estas. */
+    public static function esDireccionInterna(string $ip): bool
+    {
+        if (!filter_var($ip, FILTER_VALIDATE_IP)) {
+            return false;
+        }
+        return !filter_var(
+            $ip,
+            FILTER_VALIDATE_IP,
+            FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE
+        );
     }
 
     public function agente(): string

@@ -662,6 +662,15 @@ comprobar('muestra los cuatro datos compartidos', str_contains($html, 'mzambrano
 
 $html = $carlos->post("/c/$tokenCarnet/contacto", []);
 comprobar('el intercambio se guarda', str_contains($html, 'Contacto agregado'));
+
+// Los límites que cuentan acciones consumadas —y no fallos— tienen que anotar
+// también cuando la acción sale bien. Si no, la regla existe pero nunca cuenta
+// nada, y parece que protege sin protegerlo.
+$anotados = static fn(string $accion): int => (int) $pdo->query(
+    "SELECT COUNT(*) FROM {$BD['prefijo']}intento WHERE accion = '$accion'"
+)->fetchColumn();
+comprobar('el intercambio cuenta para su límite', $anotados('contacto') > 0);
+comprobar('el preregistro también cuenta para el suyo', $anotados('preregistro_ip') > 0);
 comprobar('el intercambio es recíproco',
     (int) $pdo->query("SELECT COUNT(*) FROM {$BD['prefijo']}contacto")->fetchColumn() === 2);
 

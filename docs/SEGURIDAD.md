@@ -189,11 +189,40 @@ desde un lector de QR no debería toparse con un error sin haber hecho nada raro
 Un envío sin testigo válido responde 419 —«la página estuvo demasiado tiempo abierta»— y no
 403, porque la causa más común no es un ataque sino una pestaña que llevaba horas abierta.
 
+### La dirección del visitante detrás de un proxy
+
+Todo lo que se cuenta por IP depende de ver la IP correcta. En Plesk hay nginx por delante de
+Apache, y en este despliegue además Cloudflare por delante de todo: sin declarar el proxy, la
+aplicación ve siempre la misma dirección y **el límite de intentos deja de ser por visitante
+para pasar a ser uno solo para todo el mundo**. Veinte accesos fallidos de cualquiera dejarían
+fuera al equipo entero.
+
+Lo contrario es igual de malo: hacer caso a `X-Forwarded-For` sin comprobar de dónde viene
+permite a cualquiera falsear su origen y saltarse los bloqueos.
+
+El equilibrio es una lista de proxies de confianza. El instalador la rellena solo cuando puede
+demostrarlo: la petición llega de una dirección interna —loopback o rango privado, que nadie
+puede presentar desde internet— y además trae una cabecera de reenvío. En cualquier otro caso
+la deja vacía. `/instalar/diagnostico` avisa si la aplicación está viendo una dirección de
+proxy, y `pruebas/proxy-y-limites.php` cubre las dos mitades.
+
 ### Fuerza bruta
 
 `App\Nucleo\Limite` cubre siete acciones con ventanas y castigos distintos: acceso del
 equipo (por cuenta y por IP), código de correo, envío de códigos, resolución de tokens de QR,
 preregistro por IP e intercambio de contactos.
+
+Hay dos clases de regla y confundirlas deja huecos:
+
+- Las que cuentan **fallos** —acceso, códigos, tokens— solo anotan cuando algo salió mal, así
+  que a quien acierta no le afectan.
+- Las que cuentan **acciones consumadas** —preregistro e intercambio de contactos— anotan
+  salga bien o mal, porque ahí el abuso consiste precisamente en tener éxito muchas veces.
+  Estas dos anotaban solo los fallos, que nunca ocurrían, de modo que el contador se quedaba
+  en cero y la regla no llegaba a saltar nunca.
+
+Los topes de la segunda clase son holgados a propósito: una sede de evento sale a internet por
+una sola dirección, y un tope bajo bloquearía al décimo asistente que se registre en la puerta.
 
 La clave del contador se guarda como HMAC. Si se guardara en claro, la tabla de intentos
 sería una lista de correos de personas que fallaron el acceso, útil para quien la lea.

@@ -65,6 +65,9 @@ final class Publico
 
             if (!$errores) {
                 Limite::exigir('preregistro_ip', $peticion->ip());
+                // Se anota el intento aunque salga bien: aquí el abuso consiste
+                // en registrar muchas veces con éxito, no en fallar.
+                Limite::registrar('preregistro_ip', $peticion->ip());
                 try {
                     $resultado = Persona::registrar((int) $evento['id'], $valores);
                     $this->guardarPropuesta((int) $resultado['id'], $valores, $peticion);

@@ -228,6 +228,9 @@ python3 pruebas/qr-contra-referencia.py   # JS contra la librería de Python
 # El saneado de los logos SVG
 php pruebas/svg-saneado.php
 
+# La dirección del visitante detrás de un proxy
+php pruebas/proxy-y-limites.php
+
 # Las pantallas en un navegador real
 node pruebas/pantallas.js                 # escritorio
 ANCHO=390 node pruebas/pantallas.js       # móvil

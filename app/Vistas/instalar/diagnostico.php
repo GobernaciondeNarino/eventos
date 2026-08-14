@@ -123,6 +123,27 @@ if ($errores) {
       </div>
     </div>
 
+    <?php if (\App\Nucleo\App::peticion()->detrasDeProxySinConfigurar()): ?>
+      <div class="notice notice--warn">
+        <span class="notice__icon" aria-hidden="true">▲</span>
+        <span class="stack" style="gap:6px">
+          <strong style="font-family:var(--f-display);font-size:13px;letter-spacing:.06em;text-transform:uppercase;color:var(--c-title)">
+            Hay un proxy por delante sin declarar
+          </strong>
+          <span>
+            La aplicación está viendo la dirección del proxy y no la de cada visitante, así que
+            el límite de intentos es uno solo para todo el mundo: veinte accesos fallidos de
+            cualquiera dejarían fuera al equipo entero.
+          </span>
+          <span class="help">
+            Se arregla en <span class="mono">config/config.php</span>, añadiendo la dirección
+            desde la que llegan las peticiones:
+            <span class="mono">'proxies_confiables' =&gt; ['<?= e((string) ($_SERVER['REMOTE_ADDR'] ?? '127.0.0.1')) ?>']</span>
+          </span>
+        </span>
+      </div>
+    <?php endif; ?>
+
     <div class="card">
       <div class="card__head"><span>Servidor</span></div>
       <div class="card__body">

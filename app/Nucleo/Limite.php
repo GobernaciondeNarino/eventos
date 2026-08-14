@@ -22,15 +22,31 @@ defined('EVENTOS_TIC') || exit;
  */
 final class Limite
 {
-    /** [intentos permitidos, ventana en segundos, bloqueo en segundos] */
+    /**
+     * [intentos permitidos, ventana en segundos, bloqueo en segundos]
+     *
+     * Hay dos clases de regla y conviene no confundirlas:
+     *
+     *  · Las que cuentan **fallos**: acceso, códigos de correo, tokens de QR.
+     *    Solo se anota cuando algo salió mal, así que a quien acierta no le
+     *    afecta.
+     *  · Las que cuentan **acciones**, salgan bien o mal: el preregistro y el
+     *    intercambio de contactos. Ahí el abuso consiste precisamente en tener
+     *    éxito muchas veces, y por eso se anota con Limite::registrar().
+     *
+     * Los topes de la segunda clase son holgados a propósito. Una sede de
+     * evento sale a internet por una sola dirección: si el tope fuera bajo, el
+     * décimo asistente que se registrara en la puerta se encontraría con un
+     * bloqueo, que es mucho peor que el abuso del que protege.
+     */
     private const REGLAS = [
         'acceso_admin'     => [5, 900, 900],     // 5 en 15 min → 15 min de espera
         'acceso_admin_ip'  => [20, 900, 900],    // por IP, contra el rociado de contraseñas
         'codigo_correo'    => [5, 600, 1800],    // 5 códigos fallidos → media hora
         'envio_codigo'     => [4, 3600, 3600],   // 4 correos por hora y destinatario
         'token_qr'         => [30, 300, 900],    // enumeración de credenciales
-        'preregistro_ip'   => [10, 3600, 3600],  // altas masivas desde una misma IP
-        'contacto'         => [60, 3600, 600],   // intercambios de contacto
+        'preregistro_ip'   => [60, 3600, 900],   // altas masivas; toda una sede comparte IP
+        'contacto'         => [60, 3600, 600],   // intercambios, por persona
     ];
 
     /** ¿Está bloqueada la combinación acción + clave? Devuelve segundos restantes. */
@@ -55,6 +71,24 @@ final class Limite
     }
 
     public static function registrarFallo(string $accion, string $clave): void
+    {
+        self::anotar($accion, $clave);
+    }
+
+    /**
+     * Anota una acción consumada, haya salido bien o mal.
+     *
+     * Para los límites donde el abuso consiste en tener éxito muchas veces: dar
+     * de alta cien registros o recolectar contactos en cadena. Sin esto, la
+     * regla existe en la tabla pero no cuenta nada y nunca llega a saltar, que
+     * es peor que no tenerla, porque parece que protege.
+     */
+    public static function registrar(string $accion, string $clave): void
+    {
+        self::anotar($accion, $clave);
+    }
+
+    private static function anotar(string $accion, string $clave): void
     {
         Bd::insertar('intento', [
             'huella'    => self::huella($accion, $clave),

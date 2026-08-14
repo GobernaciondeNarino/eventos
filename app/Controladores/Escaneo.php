@@ -212,6 +212,7 @@ final class Escaneo
         }
 
         Limite::exigir('contacto', (string) $yo['id']);
+        Limite::registrar('contacto', (string) $yo['id']);
 
         // El intercambio es recíproco: quien escanea también queda en la lista
         // del escaneado. Es lo que la gente espera al intercambiar tarjetas, y
