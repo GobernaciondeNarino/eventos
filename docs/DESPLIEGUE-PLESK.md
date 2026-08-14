@@ -106,6 +106,16 @@ wifi abierto.
 Cuando el certificado esté puesto, descomenta en `.htaccess` el bloque de redirección a
 HTTPS y la línea de `Strict-Transport-Security`.
 
+> **Sobre HSTS.** La plataforma lo envía sin `includeSubDomains`. Vive en una subcarpeta de un
+> dominio compartido con otras aplicaciones y no le corresponde obligar a todo `narino.gov.co`
+> —ni a sus subdominios— a hablar solo por HTTPS durante un año. Si el área de sistemas quiere
+> esa política para el dominio entero, se pone en el servidor, no aquí.
+
+> **Si preparas el servidor con `git clone`,** el `.htaccess` bloquea `.git/`. Compruébalo:
+> `https://tic.narino.gov.co/cumbreAI/.git/config` debe responder 404. Si responde con el
+> contenido, nginx está sirviendo estáticos por delante de Apache y hay que añadir la regla
+> también allí (ver el apartado 4).
+
 ### 3.5 Ejecutar el asistente
 
 Abre **https://tic.narino.gov.co/cumbreAI/**. Sin configuración, cualquier dirección lleva
@@ -234,7 +244,7 @@ queden bloqueadas también en nginx, agrega en **Dominio → Configuración de A
 Directivas adicionales de nginx**:
 
 ```nginx
-location ~ ^/cumbreAI/(app|config|almacen|docs|herramientas|pruebas)/ { deny all; }
+location ~ ^/cumbreAI/(app|config|almacen|docs|herramientas|pruebas|\.git)/ { deny all; }
 location ~ ^/cumbreAI/.*\.(sql|log|md|bak|old)$ { deny all; }
 ```
 

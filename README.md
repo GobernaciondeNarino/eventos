@@ -24,7 +24,7 @@ registra gente, se sella asistencia, se aprueban exposiciones y se exportan repo
 | **Instalación** | Asistente de seis pasos que crea, actualiza o anexa las tablas |
 | **Autenticación** | Asistentes por código de correo; equipo con contraseña y segundo factor |
 | **Códigos QR** | Generador propio, verificado contra una librería de referencia |
-| **Pruebas** | 143 comprobaciones de extremo a extremo, más 77 de correo, TOTP, SVG y proxy |
+| **Pruebas** | 188 comprobaciones de extremo a extremo, más 83 de correo, TOTP, SVG y proxy |
 
 ---
 
@@ -245,15 +245,17 @@ ANCHO=390 node pruebas/pantallas.js       # móvil
 el enrutado, las cookies, los testigos y los guardias, que es donde suelen estar los errores.
 Incluye 25 comprobaciones de seguridad.
 
-Estado actual: **143 de 143** de extremo a extremo, **28** del segundo factor contra los
-vectores del RFC 6238, **19** de la dirección del visitante detrás del proxy, **17** del
-saneado de logos SVG, **13** del correo saliente, **198** casos de QR idénticos entre PHP y
+Estado actual: **188 de 188** de extremo a extremo, **28** del segundo factor contra los
+vectores del RFC 6238, **19** del correo saliente, **19** de la dirección del visitante detrás
+del proxy, **17** del saneado de logos SVG, **198** casos de QR idénticos entre PHP y
 JavaScript, **161** entre JavaScript y la referencia, y las 13 pantallas limpias en escritorio
 y móvil.
 
-Las últimas comprobaciones cubren el caso que sacó a la luz un error real: una instalación que
-se interrumpe a mitad deja la plataforma marcada como instalada y sin ninguna cuenta con la que
-entrar. La prueba lo reproduce, comprueba que ahora tiene salida y que se vuelve a cerrar sola.
+Las pruebas nacieron de errores reales, y por eso cubren lo que cubren: una instalación que se
+interrumpe a mitad, un administrador atrapado en el bucle del segundo factor, un asistente
+reescribiendo el registro de otro, una búsqueda que respondía 500, pantallas cuyo JavaScript
+nunca llegaba al navegador. Cada una se comprobó primero volviendo a poner el error a mano y
+viendo fallar la prueba.
 
 ---
 

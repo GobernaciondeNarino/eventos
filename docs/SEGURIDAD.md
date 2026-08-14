@@ -24,9 +24,13 @@ escribió para eso.
 | Auditoría | Bitácora de solo inserción |
 | Cabeceras y exposición de archivos | En `.htaccess` y también desde PHP |
 
-Lo verifica `pruebas/extremo-a-extremo.php`: 143 comprobaciones sobre un servidor real, de
-las cuales 25 son específicamente de seguridad, más las suites de correo, segundo factor,
+Lo verifica `pruebas/extremo-a-extremo.php`: 188 comprobaciones sobre un servidor real, de
+las cuales 27 son específicamente de seguridad, más las suites de correo, segundo factor,
 saneado de SVG y detección de proxy.
+
+Esta revisión se rehízo módulo por módulo con diez agentes independientes, cada uno con un
+área asignada, y cada hallazgo pasó por otro agente encargado de refutarlo. Lo que sobrevivió
+está corregido y cubierto por una prueba; lo que sigue abierto está en el apartado 4.
 
 ---
 
@@ -324,6 +328,31 @@ conexión es segura.
 
 ---
 
+## 3.1 Lo que encontró la revisión por módulos
+
+Diez agentes revisaron un módulo cada uno y otro tanto se dedicó a refutar cada hallazgo.
+Estos son los que se sostuvieron y ya están corregidos. Se dejan escritos porque la mayoría
+son errores fáciles de volver a cometer.
+
+| Qué pasaba | Por qué importaba |
+|---|---|
+| El segundo factor dejaba al administrador en un bucle sin salida | `$_COOKIE` se vaciaba al rotar la sesión, así que `pendiente_2fa` no se apagaba nunca |
+| Cualquiera podía entrar a la cuenta de un asistente sabiendo su correo | El preregistro público actualizaba por correo y abría sesión con ese registro |
+| Un asistente identificado podía reescribir el registro de otro | El `readonly` del campo del correo lo decide el navegador |
+| `/c/{token}` mostraba la cédula con el segundo factor a medias | Esa ruta no lleva guardia y comprobaba el rol por su cuenta |
+| El segundo factor obligatorio se saltaba escribiendo `/admin` | El guardia miraba `pendiente_2fa` pero no si la cuenta tenía el factor puesto |
+| Toda búsqueda por texto respondía 500 | Marcador con nombre repetido, sin emulación de sentencias preparadas |
+| Ningún JavaScript de pantalla llegaba al navegador | La vista y la plantilla no comparten ámbito |
+| El paso 3 del asistente se ofrecía a borrar una base con datos | No podía consultar el esquema y daba por hecho que estaba vacía |
+| Los límites del preregistro y de contactos no contaban nada | Solo anotaban fallos, y esas acciones no fallan |
+| Detrás del proxy, un solo bloqueo dejaba fuera a todo el mundo | `proxies_confiables` se escribía siempre vacío |
+| El correo llegaba roto o no llegaba | Líneas por encima del límite del RFC 5321 y cabeceras sin codificar |
+| El lector de QR no reconocía ningún código | Solo funcionaba colgando de la raíz del dominio |
+| Dos pasaportes distintos se tomaban por el mismo | La normalización del documento quitaba las letras |
+| Quien recibía una clave temporal no podía cambiarla nunca | La marca existía y no la miraba nadie; no había pantalla |
+
+---
+
 ## 4. Hallazgos abiertos
 
 ### 4.1 La CSP necesita `style-src 'unsafe-inline'` — *compromiso consciente*
@@ -386,7 +415,7 @@ conviene decirlo con claridad en la pantalla de privacidad.
 ## 6. Verificación
 
 ```bash
-php pruebas/extremo-a-extremo.php      # 143 comprobaciones, 25 de seguridad
+php pruebas/extremo-a-extremo.php      # 188 comprobaciones, 27 de seguridad
 php pruebas/totp.php                   # segundo factor contra el RFC 6238
 php pruebas/correo.php                 # formato MIME e inyección de cabeceras
 php pruebas/svg-saneado.php            # logos SVG con código dentro
@@ -411,6 +440,11 @@ Lo que comprueban las de seguridad, concretamente:
 - Un token de QR inventado no revela nada.
 - Sin sesión, el QR del carnet no dice de quién es.
 - El documento se guarda cifrado y no en claro.
+- Nadie puede registrarse sobre el correo de otra persona, ni con sesión ni sin ella.
+- Con el segundo factor a medias no se ve la ficha de acreditación.
+- Un testigo plantado en la cookie no vale mientras haya sesión abierta.
+- El mismo código del segundo factor no sirve dos veces.
+- Una cuenta con contraseña puesta por otro no puede trabajar hasta cambiarla.
 - La contraseña de la base sale de la cookie del asistente en el paso 2, no al final.
 - La del administrador no viaja en claro entre pasos: viaja su hash.
 - La contraseña del administrador queda en hash en la tabla, no en claro.
