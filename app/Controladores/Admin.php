@@ -717,27 +717,36 @@ final class Admin
      */
     private function limpiarSvg(string $svg): string
     {
-        // Elementos peligrosos con todo su contenido.
-        $svg = preg_replace(
+        $patrones = [
+            // Elementos peligrosos con todo su contenido.
             '#<\s*(script|foreignObject|iframe|embed|object|animate|set|handler)\b[^>]*>.*?<\s*/\s*\1\s*>#is',
-            '',
-            $svg
-        ) ?? $svg;
-        // Y sus versiones vacías.
-        $svg = preg_replace(
-            '#<\s*(script|foreignObject|iframe|embed|object|animate|set|handler)\b[^>]*/?>#i',
-            '',
-            $svg
-        ) ?? $svg;
-        // Atributos de evento: onload, onclick, onerror…
-        $svg = preg_replace('#\son[a-z]+\s*=\s*(["\']).*?\1#is', '', $svg) ?? $svg;
-        $svg = preg_replace('#\son[a-z]+\s*=\s*[^\s>]+#i', '', $svg) ?? $svg;
-        // Referencias a otros orígenes y a javascript:
-        $svg = preg_replace('#(xlink:href|href)\s*=\s*(["\'])\s*(?!#)[^"\']*\2#i', '', $svg) ?? $svg;
-        $svg = preg_replace('#javascript\s*:#i', '', $svg) ?? $svg;
-        // Declaraciones de entidades: la vía de los ataques XXE.
-        $svg = preg_replace('#<!DOCTYPE.*?>#is', '', $svg) ?? $svg;
-        $svg = preg_replace('#<!ENTITY.*?>#is', '', $svg) ?? $svg;
+            // Y sus versiones vacías o sin cerrar.
+            '#<\s*(?:script|foreignObject|iframe|embed|object|animate|set|handler)\b[^>]*/?>#i',
+            // Atributos de evento: onload, onclick, onerror…
+            '#\son[a-z]+\s*=\s*(["\']).*?\1#is',
+            '#\son[a-z]+\s*=\s*[^\s>]+#i',
+            // Referencias a otros orígenes; las internas (#id) se conservan.
+            '#(?:xlink:href|href)\s*=\s*(["\'])\s*(?!\#)[^"\']*\1#i',
+            '#javascript\s*:#i',
+            // Declaraciones de entidades: la vía de los ataques XXE.
+            '#<!DOCTYPE.*?>#is',
+            '#<!ENTITY.*?>#is',
+        ];
+
+        // Se repite hasta que el texto deja de cambiar, y no una sola vez.
+        // Con una sola pasada, «<scr<script>ipt>» se queda en «<script>»: al
+        // quitar la etiqueta de dentro, los dos trozos de fuera se juntan y
+        // reconstruyen justo lo que se quería eliminar. El tope evita que un
+        // archivo preparado a mala fe haga girar esto para siempre.
+        for ($vuelta = 0; $vuelta < 10; $vuelta++) {
+            $antes = $svg;
+            foreach ($patrones as $patron) {
+                $svg = preg_replace($patron, '', $svg) ?? $svg;
+            }
+            if ($svg === $antes) {
+                break;
+            }
+        }
 
         return $svg;
     }

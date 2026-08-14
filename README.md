@@ -225,6 +225,9 @@ php pruebas/extremo-a-extremo.php
 php pruebas/qr-php-contra-js.php          # servidor contra referencia JS
 python3 pruebas/qr-contra-referencia.py   # JS contra la librería de Python
 
+# El saneado de los logos SVG
+php pruebas/svg-saneado.php
+
 # Las pantallas en un navegador real
 node pruebas/pantallas.js                 # escritorio
 ANCHO=390 node pruebas/pantallas.js       # móvil
