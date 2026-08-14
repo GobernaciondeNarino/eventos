@@ -133,7 +133,11 @@
       var base = document.body.getAttribute('data-base') || '/';
       if (!url.pathname.startsWith(base)) return false;
 
-      var resto = url.pathname.slice(base.length);
+      // La base llega sin barra final ('/cumbreAI'), así que al recortarla
+      // queda '/d/xxxx' con barra delante. Sin quitarla, la expresión no casa
+      // y el lector descarta todos los códigos: funcionaba solo cuando la
+      // aplicación colgaba de la raíz del dominio.
+      var resto = url.pathname.slice(base.length).replace(/^\/+/, '');
       return /^(d|c)\/[a-f0-9]{16,64}$/.test(resto);
     } catch (e) {
       return false;

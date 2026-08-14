@@ -35,6 +35,20 @@ $guiones = ['preregistro.js'];
     <div class="notice notice--danger"><span class="notice__icon">▲</span><span><?= e($err('general')) ?></span></div>
   <?php endif; ?>
 
+  <?php if ($err('ofrecer_acceso')): ?>
+    <div class="notice notice--warn">
+      <span class="notice__icon" aria-hidden="true">▲</span>
+      <span class="stack" style="gap:6px">
+        <span><?= e($err('correo')) ?></span>
+        <span class="help">
+          Te enviaremos un código de seis dígitos a ese buzón. Es la forma de comprobar que la
+          cuenta es tuya antes de dejar cambiar nada.
+        </span>
+        <span><a href="<?= e(u('/entrar', ['destino' => '/preregistro'])) ?>">Entrar con mi código ›</a></span>
+      </span>
+    </div>
+  <?php endif; ?>
+
   <!-- ================= Datos obligatorios ================= -->
   <section class="card">
     <div class="card__head"><span>Datos obligatorios</span></div>

@@ -40,6 +40,31 @@ use App\Nucleo\Url;
  */
 final class Escaneo
 {
+    /**
+     * A quién se le cuentan los tokens equivocados.
+     *
+     * A la persona identificada, si la hay; y solo a la dirección cuando no se
+     * sabe quién es. Contarlo siempre por dirección es un problema serio en la
+     * puerta: toda la sede sale a internet por una sola, así que treinta
+     * escaneos fallidos de un curioso dejaban a cientos de asistentes sin poder
+     * registrar su ingreso durante un cuarto de hora.
+     *
+     * El riesgo de que alguien adivine un token no cambia por esto: son 128
+     * bits al azar.
+     */
+    private function claveDelLimite(Peticion $peticion): string
+    {
+        $persona = Guardia::personaActual();
+        if ($persona !== null) {
+            return 'persona:' . $persona['id'];
+        }
+        $usuario = Guardia::usuarioActual();
+        if ($usuario !== null) {
+            return 'usuario:' . $usuario['id'];
+        }
+        return 'ip:' . $peticion->ip();
+    }
+
     /* =====================================================================
        Código de la jornada
        ===================================================================== */
@@ -51,11 +76,12 @@ final class Escaneo
         $persona = Guardia::personaActual();
         $token = (string) $parametros['token'];
 
-        Limite::exigir('token_qr', $peticion->ip());
+        $clave = $this->claveDelLimite($peticion);
+        Limite::exigir('token_qr', $clave);
 
         $jornada = Evento::jornadaPorToken($token);
         if (!$jornada) {
-            Limite::registrarFallo('token_qr', $peticion->ip());
+            Limite::registrarFallo('token_qr', $clave);
             Bitacora::registrar('token_dia_invalido', 'seguridad', null);
             Respuesta::vista('publico/escaneo-resultado', [
                 'titulo'   => 'Código no reconocido',
@@ -112,11 +138,12 @@ final class Escaneo
     public function carnetAjeno(Peticion $peticion, array $parametros): void
     {
         $token = (string) $parametros['token'];
-        Limite::exigir('token_qr', $peticion->ip());
+        $clave = $this->claveDelLimite($peticion);
+        Limite::exigir('token_qr', $clave);
 
         $credencial = Credencial::porToken($token);
         if (!$credencial) {
-            Limite::registrarFallo('token_qr', $peticion->ip());
+            Limite::registrarFallo('token_qr', $clave);
             Respuesta::vista('publico/escaneo-resultado', [
                 'titulo'     => 'Credencial no reconocida',
                 'pantalla'   => '',
@@ -126,7 +153,12 @@ final class Escaneo
             ], 404);
         }
 
-        $usuario = Guardia::usuarioActual();
+        // equipoOperativo() y no usuarioActual(): esta ruta no lleva guardia
+        // —la abre la cámara de un teléfono sin contexto— y comprueba el rol
+        // por su cuenta. Con usuarioActual() entraban cuentas suspendidas y
+        // cuentas con el segundo factor a medio hacer, y lo que hay al otro
+        // lado es la cédula de una persona.
+        $usuario = Guardia::equipoOperativo();
         $yo = Guardia::personaActual();
 
         // --- El equipo lo escanea: acreditar el ingreso ---------------------
@@ -252,10 +284,11 @@ final class Escaneo
                 'No hay ningún evento activo, así que no se puede registrar el ingreso.', 'warn');
         }
 
-        $numero = $peticion->entero('jornada');
-        $jornada = $numero > 0
-            ? Evento::jornada((int) $evento['id'], $numero)
-            : Evento::jornadaDeHoy((int) $evento['id']);
+        // El día lo pone el calendario, no el formulario. Aceptar el número que
+        // llegara en el envío permitía sellar el ingreso de una jornada que aún
+        // no ha ocurrido, o de una que ya pasó, y esos registros son la base de
+        // los reportes de asistencia del evento.
+        $jornada = Evento::jornadaDeHoy((int) $evento['id']);
 
         if (!$jornada) {
             Respuesta::redirigir('/admin/escaner',

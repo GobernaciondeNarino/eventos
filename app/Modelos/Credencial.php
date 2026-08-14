@@ -45,20 +45,38 @@ final class Credencial
         }
 
         $anio = date('Y');
+
         // El número visible es correlativo por año; el token es lo aleatorio.
         // Se separan porque el correlativo se dicta por teléfono cuando algo
         // falla, y un token de 32 caracteres no se dicta.
-        $siguiente = (int) Bd::valor(
-            "SELECT COUNT(*) + 1 FROM {credencial} WHERE codigo LIKE ?",
-            ['STIC-' . $anio . '-%']
-        );
+        //
+        // Se toma el mayor emitido y no COUNT(*)+1: contar da un número que ya
+        // existe en cuanto se borra una credencial —basta con que se elimine una
+        // persona— y entonces choca con la llave única y el preregistro
+        // responde un 500. Aun así puede haber una carrera entre dos altas
+        // simultáneas, así que se reintenta.
+        for ($intento = 0; $intento < 5; $intento++) {
+            $ultimo = (string) (Bd::valor(
+                "SELECT MAX(codigo) FROM {credencial} WHERE codigo LIKE ?",
+                ['STIC-' . $anio . '-%']
+            ) ?? '');
+            $siguiente = $ultimo === '' ? 1 : ((int) substr($ultimo, -6)) + 1;
 
-        $codigo = sprintf('STIC-%s-%06d', $anio, $siguiente);
-        Bd::insertar('credencial', [
-            'persona_id' => $personaId,
-            'codigo'     => $codigo,
-            'token'      => Cripto::token(16),
-        ]);
+            try {
+                Bd::insertar('credencial', [
+                    'persona_id' => $personaId,
+                    'codigo'     => sprintf('STIC-%s-%06d', $anio, $siguiente + $intento),
+                    'token'      => Cripto::token(16),
+                ]);
+                break;
+            } catch (\PDOException $e) {
+                // 23000 es la violación de una restricción de unicidad: otra
+                // alta se llevó ese número. Se prueba con el siguiente.
+                if ($e->getCode() !== '23000' || $intento === 4) {
+                    throw $e;
+                }
+            }
+        }
 
         return self::dePersona($personaId) ?? [];
     }

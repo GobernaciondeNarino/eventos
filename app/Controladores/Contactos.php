@@ -101,9 +101,18 @@ final class Contactos
         Respuesta::descarga('contactos-evento.vcf', implode("\r\n", $tarjetas), 'text/vcard');
     }
 
-    /** En vCard la coma, el punto y coma y la barra invertida se escapan. */
+    /**
+     * Escapado de vCard.
+     *
+     * La barra invertida, el punto y coma y la coma llevan escape. Y cualquier
+     * final de línea se convierte en «\n» literal: un retorno de carro suelto
+     * dentro de un nombre —que el formulario acepta sin problema— partía la
+     * tarjeta en dos y dejaba inyectar propiedades falsas, un TEL o un EMAIL que
+     * no son de esa persona, en la agenda de quien la importara.
+     */
     private function escapar(string $valor): string
     {
-        return str_replace(["\\", ';', ',', "\r\n", "\n"], ['\\\\', '\;', '\,', '\n', '\n'], $valor);
+        $valor = str_replace(["\\", ';', ','], ['\\\\', '\;', '\,'], $valor);
+        return (string) preg_replace('/\r\n|\r|\n|\x{2028}|\x{2029}/u', '\n', $valor);
     }
 }

@@ -43,9 +43,21 @@ final class Persona
         );
     }
 
+    /**
+     * El documento tal como se compara y se guarda.
+     *
+     * Se conservan las letras. Quitándolas, dos pasaportes distintos —AB123456
+     * y CD123456— quedaban en el mismo «123456» y la plataforma rechazaba al
+     * segundo diciéndole que su documento ya estaba registrado con otro correo.
+     * Lo mismo con las cédulas de extranjería.
+     *
+     * Se quitan puntos, espacios y guiones, que es lo que la gente escribe de
+     * más, y se pasa a mayúsculas para que la comparación no dependa de cómo
+     * lo teclee cada quien.
+     */
     public static function normalizarDocumento(string $documento): string
     {
-        return preg_replace('/\D/', '', $documento) ?? '';
+        return mb_strtoupper(preg_replace('/[^A-Za-z0-9]/u', '', $documento) ?? '');
     }
 
     public static function documento(array $persona): string

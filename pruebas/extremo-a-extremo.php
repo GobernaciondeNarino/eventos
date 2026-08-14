@@ -617,6 +617,65 @@ $html = $otro->post('/preregistro', [
 ]);
 comprobar('rechaza un documento ya registrado con otro correo', str_contains($html, 'ya está registrado con otro correo'));
 
+/* -------------------------------------------------------------------------
+   Toma de sesión por el preregistro
+   -------------------------------------------------------------------------
+   Persona::registrar() busca por correo y actualiza si encuentra, y después se
+   abría sesión con ese id. Cualquiera que supiera el correo de un asistente
+   —en una entidad son públicos— podía reescribir su nombre y su documento y
+   quedarse dentro de su cuenta.
+   ------------------------------------------------------------------------- */
+$intruso = new Cliente($BASE);
+$intruso->get('/preregistro');
+$html = $intruso->post('/preregistro', [
+    'correo' => 'mzambrano@narino.gov.co',      // de alguien ya registrado
+    'nombre' => 'Persona Suplantadora',
+    'tipo_documento' => 'CC', 'documento' => '1099887766',
+    'habeas' => '1',
+]);
+comprobar('no deja registrar sobre el correo de otra persona',
+    str_contains($html, 'ya tiene un registro en este evento'));
+comprobar('y ofrece el acceso por código', str_contains($html, 'Entrar con mi código'));
+
+$intruso->get('/carnet', false);
+comprobar('no quedó con sesión de esa persona', $intruso->codigo === 303,
+    (string) $intruso->codigo);
+
+$suplantada = $pdo->query("SELECT nombre FROM {$BD['prefijo']}persona
+                            WHERE correo = 'mzambrano@narino.gov.co'")->fetchColumn();
+comprobar('y no le cambió el nombre', $suplantada !== 'Persona Suplantadora',
+    (string) $suplantada);
+
+/* -------------------------------------------------------------------------
+   Documentos con letras
+   -------------------------------------------------------------------------
+   normalizarDocumento() quitaba las letras, así que dos pasaportes distintos
+   —AB123456 y CD123456— quedaban en el mismo «123456» y el segundo se
+   rechazaba diciendo que ya estaba registrado con otro correo.
+   ------------------------------------------------------------------------- */
+$pasaporte1 = new Cliente($BASE);
+$pasaporte1->get('/preregistro');
+$html = $pasaporte1->post('/preregistro', [
+    'correo' => 'visitante.uno@ajeno.example', 'nombre' => 'Visitante Uno Extranjero',
+    'tipo_documento' => 'PP', 'documento' => 'AB123456', 'habeas' => '1',
+]);
+comprobar('un pasaporte con letras se registra', str_contains($html, 'Visitante Uno Extranjero'));
+
+$pasaporte2 = new Cliente($BASE);
+$pasaporte2->get('/preregistro');
+$html = $pasaporte2->post('/preregistro', [
+    'correo' => 'visitante.dos@ajeno.example', 'nombre' => 'Visitante Dos Extranjero',
+    'tipo_documento' => 'PP', 'documento' => 'CD123456', 'habeas' => '1',
+]);
+comprobar('y otro que solo cambia en las letras no choca con el primero',
+    str_contains($html, 'Visitante Dos Extranjero'), 'chocaron por el número');
+
+$html = $pasaporte1->post('/preregistro', [
+    'correo' => 'visitante.uno@ajeno.example', 'nombre' => 'Visitante Uno Extranjero',
+    'tipo_documento' => 'CC', 'documento' => 'AB123456', 'habeas' => '1',
+]);
+comprobar('pero una cédula con letras se rechaza', str_contains($html, 'solo números'));
+
 /* =========================================================================
    4 · El código QR de la jornada
    ========================================================================= */
@@ -921,6 +980,13 @@ $vuelve->get('/admin', false);
 comprobar('y el panel no se abre saltándose la verificación',
     $vuelve->codigo === 303 && str_contains($vuelve->cabecera('Location'), '/admin/verificar'),
     $vuelve->codigo . ' → ' . $vuelve->cabecera('Location'));
+
+// /c/{token} no lleva guardia —la abre la cámara de un teléfono— y comprobaba
+// el rol por su cuenta, así que con la contraseña puesta y el segundo factor a
+// medias ya enseñaba la ficha de acreditación, con la cédula dentro.
+$html = $vuelve->get("/c/$tokenCarnet");
+comprobar('con el segundo factor a medias no se ve la ficha de acreditación',
+    !str_contains($html, 'Acreditar') && !str_contains($html, 'Registrar ingreso'));
 
 $html = $vuelve->post('/admin/verificar', ['codigo' => $codigoDe($secreto)]);
 comprobar('con el código correcto se entra',

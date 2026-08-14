@@ -127,6 +127,33 @@ final class Guardia
     }
 
     /**
+     * El miembro del equipo, pero solo si terminó de identificarse.
+     *
+     * usuarioActual() dice quién abrió sesión; esto dice si esa sesión sirve
+     * para trabajar. La diferencia importa en las rutas que no llevan el
+     * guardia 'admin' y comprueban el rol por su cuenta —el escaneo de un
+     * carnet, sin ir más lejos—: ahí entraban cuentas con el segundo factor a
+     * medias y cuentas suspendidas, y lo que se ve al otro lado es la ficha de
+     * acreditación con la cédula de una persona.
+     */
+    public static function equipoOperativo(): ?array
+    {
+        $usuario = self::usuarioActual();
+        if ($usuario === null || $usuario['estado'] !== 'activo') {
+            return null;
+        }
+        if (!empty(Sesion::datos('admin')['pendiente_2fa'])) {
+            return null;
+        }
+        if (\App\Modelos\Usuario::exigeSegundoFactor($usuario)
+            && !\App\Modelos\Usuario::tieneSegundoFactor($usuario)
+            && Config::obtener('exigir_2fa_admin', true)) {
+            return null;
+        }
+        return $usuario;
+    }
+
+    /**
      * Jerarquía de permisos.
      *
      * El administrador puede todo lo del operador y lo de consulta; el operador

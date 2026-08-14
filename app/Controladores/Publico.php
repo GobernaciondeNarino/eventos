@@ -63,6 +63,23 @@ final class Publico
             $valores = $this->valoresEnviados($peticion);
             $errores = $this->validarPreregistro($valores, $peticion, $yo !== null);
 
+            // Un correo ya registrado no se puede tocar desde aquí.
+            //
+            // Persona::registrar() busca por correo y actualiza si encuentra;
+            // después, sin sesión previa, se abría sesión con ese id. O sea que
+            // cualquiera que supiera el correo de un asistente —y en una entidad
+            // son públicos— podía reescribir su nombre y su documento y quedarse
+            // dentro de su cuenta: ver su carnet, su cédula y sus contactos.
+            //
+            // Para corregir sus datos hay que demostrar que se controla ese
+            // buzón, que es exactamente para lo que está el acceso por código.
+            if (!$errores && $yo === null
+                && Persona::porCorreo((int) $evento['id'], (string) $valores['correo']) !== null) {
+                $errores['correo'] = 'Ese correo ya tiene un registro en este evento. '
+                    . 'Entra con tu código de acceso para verlo o corregirlo.';
+                $errores['ofrecer_acceso'] = '1';
+            }
+
             if (!$errores) {
                 Limite::exigir('preregistro_ip', $peticion->ip());
                 // Se anota el intento aunque salga bien: aquí el abuso consiste
@@ -158,8 +175,14 @@ final class Publico
         }
 
         $documento = Persona::normalizarDocumento($v['documento']);
-        if (strlen($documento) < 5 || strlen($documento) > 12) {
-            $errores['documento'] = 'El número de identificación debe tener entre 5 y 12 dígitos.';
+        if (strlen($documento) < 5 || strlen($documento) > 16) {
+            $errores['documento'] = 'El número de identificación debe tener entre 5 y 16 caracteres.';
+        }
+        // El pasaporte y la cédula de extranjería llevan letras; la cédula
+        // colombiana y la tarjeta de identidad, no.
+        if (in_array($v['tipo_documento'] ?? 'CC', ['CC', 'TI'], true)
+            && preg_match('/[^0-9]/', $documento)) {
+            $errores['documento'] = 'La cédula y la tarjeta de identidad son solo números.';
         }
 
         if ($v['telefono'] !== '') {
