@@ -17,6 +17,22 @@ use App\Nucleo\Cripto;
  */
 final class Evento
 {
+    /**
+     * ¿Es una fecha de calendario que existe?
+     *
+     * La expresión regular sola no basta: «2026-02-30» tiene el formato
+     * correcto y strtotime() hasta devuelve un número, pero MySQL en modo
+     * estricto rechaza esa fecha y crear el evento terminaba en un 500 en vez
+     * de en un aviso junto al campo.
+     */
+    public static function fechaValida(string $fecha): bool
+    {
+        if (!preg_match('/^(\\d{4})-(\\d{2})-(\\d{2})$/', $fecha, $m)) {
+            return false;
+        }
+        return checkdate((int) $m[2], (int) $m[3], (int) $m[1]);
+    }
+
     public static function porId(int $id): ?array
     {
         return Bd::fila('SELECT * FROM {evento} WHERE id = ?', [$id]);

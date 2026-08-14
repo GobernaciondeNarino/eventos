@@ -158,6 +158,10 @@ final class Admin
             'filtros'  => $filtros,
             'total'    => (int) Bd::valor('SELECT COUNT(*) FROM {persona} WHERE evento_id = ?', [(int) $evento['id']]),
             'puedeVerSensibles' => Guardia::puede('administrador'),
+            // El rol consulta está pensado para ver indicadores, no para leer
+            // la cédula de cada asistente. El operador sí la necesita: es lo
+            // que compara contra el documento físico al acreditar.
+            'puedeVerDocumento' => Guardia::puede('operador'),
         ]);
     }
 
@@ -177,14 +181,19 @@ final class Admin
                 'La exportación con caracterización está reservada al rol administrador.');
         }
 
+        // La vista construye el enlace de exportación con las claves de
+        // $filtros, así que llega «texto» y no «q». Leyendo solo «q», el CSV
+        // salía con todos los registros aunque en pantalla se viera un filtro
+        // aplicado: quien exportaba se llevaba mucho más de lo que creía.
         $filtros = [
-            'texto'  => $peticion->query('q'),
+            'texto'  => $peticion->query('texto') ?: $peticion->query('q'),
             'rol'    => $peticion->query('rol'),
             'dia'    => $peticion->entero('dia'),
             'limite' => 500,
         ];
         $personas = Persona::buscar((int) $evento['id'], $filtros);
         $jornadas = Evento::jornadas((int) $evento['id']);
+        $puedeVerDocumento = Guardia::puede('operador');
 
         $cabecera = ['Nombre', 'Documento', 'Correo', 'Teléfono', 'Entidad', 'Departamento', 'Municipio', 'Perfil'];
         foreach ($jornadas as $j) {
@@ -199,7 +208,7 @@ final class Admin
             $dias = Persona::diasDe($p['dias'] ?? null);
             $fila = [
                 $p['nombre'],
-                Persona::documento($p),
+                $puedeVerDocumento ? Persona::documento($p) : '',
                 $p['correo'],
                 $p['telefono'],
                 $p['entidad'],
@@ -537,7 +546,7 @@ final class Admin
         if (mb_strlen($nombre) < 3) {
             Respuesta::redirigir('/admin/eventos', 'Escribe el nombre del evento.', 'warn');
         }
-        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $fecha) || strtotime($fecha) === false) {
+        if (!Evento::fechaValida($fecha)) {
             Respuesta::redirigir('/admin/eventos', 'Elige una fecha de inicio válida.', 'warn');
         }
 

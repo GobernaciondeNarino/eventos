@@ -219,5 +219,18 @@
     });
   });
 
+  /* ---------------------------------------------------------------------
+     Botones de impresión
+     ---------------------------------------------------------------------
+     Antes eran onclick="window.print()" en el propio HTML, y la política de
+     seguridad de la plataforma no admite guiones en línea: el botón del pliego
+     del día y el del carnet no hacían absolutamente nada.
+     --------------------------------------------------------------------- */
+  $$('[data-imprimir]').forEach(function (boton) {
+    boton.addEventListener('click', function () {
+      window.print();
+    });
+  });
+
   window.App = { abrirDialogo: abrir, cerrarDialogo: cerrar, $: $, $$: $$ };
 })();

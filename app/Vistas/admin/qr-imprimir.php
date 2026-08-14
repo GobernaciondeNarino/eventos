@@ -18,7 +18,7 @@ defined('EVENTOS_TIC') || exit;
         <h1 style="font-size:24px">Código del día <?= e((string) $jornada['numero']) ?></h1>
       </div>
       <div class="row">
-        <button class="btn btn--primary" type="button" onclick="window.print()">Imprimir</button>
+        <button class="btn btn--primary" type="button" data-imprimir>Imprimir</button>
         <a class="btn" href="<?= e(u('/admin/qr-dias')) ?>">Volver</a>
       </div>
     </div>

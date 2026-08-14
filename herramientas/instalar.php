@@ -135,7 +135,11 @@ if ($bandera('reparar')) {
             . 'Motivo: ' . $d['motivo']);
     }
 
-    Config::escribir(['instalado' => true, 'version' => APP_VERSION] + Config::todo());
+    if (!Config::escribir(['instalado' => true, 'version' => APP_VERSION] + Config::todo())) {
+        $morir('No se pudo escribir config/config.php. Revisa que la carpeta config/ tenga '
+            . 'permiso de escritura para el usuario del dominio; sin eso la marca no se corrige, '
+            . 'por más que todo lo demás esté bien.');
+    }
     $bien('Marca corregida. La plataforma ya no debería redirigir al asistente.');
     $linea();
     exit(0);
@@ -192,7 +196,7 @@ if (!filter_var($adminCorreo, FILTER_VALIDATE_EMAIL)) { $faltan[] = '--admin-cor
 if (mb_strlen($adminNombre) < 5) { $faltan[] = '--admin-nombre'; }
 if (mb_strlen($evento) < 3) { $faltan[] = '--evento'; }
 if ($url === '' || !preg_match('#^https?://#', $url)) { $faltan[] = '--url (con http:// o https://)'; }
-if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $inicio) || strtotime($inicio) === false) { $faltan[] = '--inicio (AAAA-MM-DD)'; }
+if (!Evento::fechaValida($inicio)) { $faltan[] = '--inicio (AAAA-MM-DD)'; }
 if (!preg_match('/^[a-z][a-z0-9_]{0,15}$/', $bd['prefijo'])) { $faltan[] = '--bd-prefijo (letras minúsculas)'; }
 if (!$claveGenerada && mb_strlen($adminClave) < 12) { $faltan[] = '--admin-clave de 12 caracteres o más'; }
 
@@ -206,7 +210,7 @@ if ($faltan) {
 $paso('Comprobando el servidor');
 foreach (['pdo_mysql', 'mbstring', 'openssl', 'json', 'fileinfo'] as $extension) {
     if (!extension_loaded($extension)) {
-        $morir("Falta la extensión de PHP «$extension», que es obligatoria.");
+        $morir("Falta la extensión de PHP «{$extension}», que es obligatoria.");
     }
 }
 if (PHP_VERSION_ID < 80100) {

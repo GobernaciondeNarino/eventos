@@ -354,8 +354,23 @@ final class Esquema
             . ') ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;';
     }
 
+    /**
+     * Resuelve {tabla} y pone el prefijo también en los nombres de las claves
+     * foráneas.
+     *
+     * En MySQL el nombre de una clave foránea es único en toda la base, no solo
+     * dentro de su tabla. Sin prefijo, instalar dos veces la plataforma con
+     * prefijos distintos —evt_ y cumbre_— en la misma base fallaba a mitad del
+     * esquema con el errno 121, dejando las tablas a medio crear.
+     */
     private static function aplicarPrefijo(string $texto, string $prefijo): string
     {
+        $texto = preg_replace_callback(
+            '/\bCONSTRAINT\s+(fk_[a-z0-9_]+)\b/i',
+            static fn(array $m): string => 'CONSTRAINT `' . $prefijo . $m[1] . '`',
+            $texto
+        ) ?? $texto;
+
         return preg_replace_callback(
             '/\{([a-z_]+)\}/',
             static fn(array $m): string => '`' . $prefijo . $m[1] . '`',

@@ -83,7 +83,7 @@ final class Respuesta
     {
         $archivo = RAIZ . '/app/Vistas/' . str_replace(['..', '\\'], '', $vista) . '.php';
         if (!is_file($archivo)) {
-            throw new \RuntimeException("No existe la vista «$vista».");
+            throw new \RuntimeException("No existe la vista «{$vista}».");
         }
 
         // extract() con EXTR_SKIP: una variable de la vista nunca pisa a una

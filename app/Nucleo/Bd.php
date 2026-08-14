@@ -233,7 +233,7 @@ final class Bd
             $charset = $juego['Value'] ?? 'desconocido';
 
             if (!str_starts_with($charset, 'utf8')) {
-                return [false, "La base de datos usa el juego de caracteres «$charset». "
+                return [false, "La base de datos usa el juego de caracteres «{$charset}». "
                     . 'Debe ser utf8mb4 o las tildes y la ñ se guardarán mal.'];
             }
             return [true, "Conexión correcta · $version · $charset"];

@@ -179,8 +179,17 @@ final class Persona
         $parametros = ['evento' => $eventoId];
 
         if (!empty($filtros['texto'])) {
-            $donde[] = '(p.nombre LIKE :texto OR p.correo LIKE :texto OR p.entidad LIKE :texto OR p.municipio LIKE :texto)';
-            $parametros['texto'] = '%' . str_replace(['%', '_'], ['\%', '\_'], (string) $filtros['texto']) . '%';
+            // Un marcador distinto por columna. Con las sentencias preparadas
+            // de verdad —sin emulación, que es como está configurado PDO—
+            // MySQL no admite repetir el mismo nombre, y la consulta entera
+            // fallaba: toda búsqueda por texto del panel respondía 500,
+            // incluida la del escáner, que es la que se usa en la puerta
+            // cuando a alguien no le funciona el código.
+            $donde[] = '(p.nombre LIKE :texto1 OR p.correo LIKE :texto2'
+                . ' OR p.entidad LIKE :texto3 OR p.municipio LIKE :texto4)';
+            $patron = '%' . str_replace(['%', '_'], ['\%', '\_'], (string) $filtros['texto']) . '%';
+            $parametros += ['texto1' => $patron, 'texto2' => $patron,
+                            'texto3' => $patron, 'texto4' => $patron];
         }
         if (!empty($filtros['rol']) && in_array($filtros['rol'], self::ROLES, true)) {
             $donde[] = 'p.rol = :rol';

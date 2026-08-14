@@ -18,7 +18,7 @@ $rol = (string) $persona['rol'];
         <p class="help">Las dos caras salen a tamaño real. Imprime en cartulina y recorta por el borde.</p>
       </div>
       <div class="row">
-        <button class="btn btn--primary" type="button" onclick="window.print()">Imprimir</button>
+        <button class="btn btn--primary" type="button" data-imprimir>Imprimir</button>
         <a class="btn" href="<?= e(u('/carnet')) ?>">Volver</a>
       </div>
     </div>

@@ -104,7 +104,7 @@ $conFiltro = array_filter($filtros);
               <strong style="font-weight:500;color:var(--c-title)"><?= e($p['nombre']) ?></strong>
               <span class="mono muted" style="font-size:11px"><?= e($p['correo']) ?></span>
             </div>
-            <span class="mono" style="font-size:12.5px;color:var(--c-text)"><?= e(documento(Persona::documento($p))) ?></span>
+            <span class="mono" style="font-size:12.5px;color:var(--c-text)"><?= ($puedeVerDocumento ?? false) ? e(documento(Persona::documento($p))) : '· · ·' ?></span>
             <span style="color:var(--c-text)"><?= e($p['municipio'] ?: '—') ?></span>
             <span style="color:var(--c-text)"><?= e($p['entidad'] ?: '—') ?></span>
             <span><span class="tag <?= e(claseRol((string) $p['rol'])) ?>"><?= e(etiquetaRol((string) $p['rol'])) ?></span></span>

@@ -485,6 +485,12 @@ comprobar('la reparación exige otra vez las credenciales de la base',
     str_contains($html, 'Tablas de la aplicación'));
 comprobar('y no ofrece la opción que borra datos',
     !str_contains($html, 'Instalación limpia'));
+// El paso 3 tiene que ver las tablas que hay. Cuando no las veía, anunciaba
+// «no hay ninguna tabla» y preseleccionaba la instalación limpia sobre una base
+// con datos dentro.
+comprobar('ve las 16 tablas que ya existen',
+    str_contains($html, 'Ya existen 16 tablas'),
+    str_contains($html, 'No hay ninguna tabla') ? 'dijo que no había ninguna' : '');
 
 // Aunque se envíe a mano, «limpio» no se aplica en una reparación.
 $html = $perdido->post('/instalar', ['accion' => 'paso3', 'modo' => 'limpio']);
@@ -932,6 +938,31 @@ comprobar('la bitácora no guarda contraseñas', $conClave === 0);
 $sesiones = $pdo->query("SELECT id FROM {$BD['prefijo']}sesion LIMIT 1")->fetchColumn();
 comprobar('la cookie de sesión no es el identificador guardado',
     $sesiones && $maria->cookie('evtic_asis') !== '' && $sesiones !== $maria->cookie('evtic_asis'));
+
+/* =========================================================================
+   9a · Búsqueda por texto
+   -------------------------------------------------------------------------
+   Sin emulación de sentencias preparadas, MySQL no admite repetir un marcador
+   con nombre. Las tres búsquedas de la plataforma repetían «:texto» cuatro
+   veces y respondían 500, incluida la del escáner, que es la que se usa en la
+   puerta cuando a alguien no le funciona el código.
+   ========================================================================= */
+titulo('Búsqueda por texto');
+
+$html = $admin->post('/admin/escaner/buscar', ['q' => 'Zambrano']);
+comprobar('el escáner encuentra a alguien por su nombre',
+    str_contains($html, 'Zambrano') && !str_contains($html, 'Algo salió mal'));
+
+$html = $admin->get('/admin/registros?q=Zambrano');
+comprobar('los registros filtran por texto',
+    str_contains($html, 'Zambrano') && !str_contains($html, 'Algo salió mal'));
+
+$html = $maria->get('/agenda?q=' . rawurlencode('conectividad'));
+comprobar('la agenda pública también busca', !str_contains($html, 'Algo salió mal'));
+
+$html = $admin->get('/admin/registros?q=' . rawurlencode("100%_'"));
+comprobar('y los comodines del texto no rompen la consulta',
+    !str_contains($html, 'Algo salió mal'));
 
 /* =========================================================================
    9b · Cada pantalla carga su JavaScript

@@ -294,8 +294,14 @@ final class Publico
             $parametros['dia'] = $dia;
         }
         if ($texto !== '') {
-            $donde[] = '(pr.titulo LIKE :texto OR p.nombre LIKE :texto OR p.entidad LIKE :texto OR pr.categoria LIKE :texto)';
-            $parametros['texto'] = '%' . str_replace(['%', '_'], ['\%', '\_'], $texto) . '%';
+            // Un marcador por columna: sin emulación de sentencias preparadas,
+            // MySQL no admite repetir el mismo nombre y la búsqueda de la
+            // agenda respondía 500.
+            $donde[] = '(pr.titulo LIKE :texto1 OR p.nombre LIKE :texto2'
+                . ' OR p.entidad LIKE :texto3 OR pr.categoria LIKE :texto4)';
+            $patron = '%' . str_replace(['%', '_'], ['\%', '\_'], $texto) . '%';
+            $parametros += ['texto1' => $patron, 'texto2' => $patron,
+                            'texto3' => $patron, 'texto4' => $patron];
         }
         if ($categoria !== '') {
             $donde[] = 'pr.categoria = :categoria';

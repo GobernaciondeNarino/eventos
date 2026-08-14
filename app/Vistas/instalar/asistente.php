@@ -209,15 +209,17 @@ guiones('instalador.js');
 
     <?php /* =============== Paso 3 =============== */ elseif ($paso === 3): ?>
       <?php
-      $existentes = [];
-      try {
-          $existentes = Esquema::existentes();
-      } catch (\Throwable) {
-          $existentes = [];
-      }
+      // Lo mira el controlador, que es quien puede abrir la conexión.
+      $conectado = (bool) ($esquema['conectado'] ?? false);
+      $existentes = (array) ($esquema['existentes'] ?? []);
+      $versionPrevia = $esquema['version'] ?? null;
       $prefijo = (string) ($bd['prefijo'] ?? 'evt_');
-      $versionPrevia = Esquema::versionInstalada();
-      $modoSugerido = $existentes ? ($versionPrevia ? 'actualizar' : 'anexar') : 'limpio';
+
+      // Si no se pudo comprobar qué hay, no se sugiere borrar: se sugiere lo
+      // que no destruye nada.
+      $modoSugerido = !$conectado
+          ? 'anexar'
+          : ($existentes ? ($versionPrevia ? 'actualizar' : 'anexar') : 'limpio');
 
       $modos = [
         ['limpio', 'Instalación limpia', 'Elimina las tablas con este prefijo y las crea desde cero. Se pierden los datos que hubiera.'],
@@ -249,7 +251,13 @@ guiones('instalador.js');
             <span class="muted"><?= count($existentes) ?> de <?= count(Esquema::nombres()) ?> tablas presentes</span>
           </div>
           <div class="card__body stack stack--3">
-            <?php if (!$existentes): ?>
+            <?php if (!$conectado): ?>
+              <p class="help">
+                <strong>No se pudo comprobar qué hay en la base de datos.</strong> Vuelve al paso
+                anterior y confirma los datos de conexión. Mientras tanto se propone el modo que
+                no borra nada; no elijas la instalación limpia sin saber qué hay al otro lado.
+              </p>
+            <?php elseif (!$existentes): ?>
               <p class="help">No hay ninguna tabla con el prefijo <span class="mono"><?= e($prefijo) ?></span>. Es una instalación nueva.</p>
             <?php else: ?>
               <p class="help">

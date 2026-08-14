@@ -97,8 +97,38 @@ final class Instalador
             'tipografias' => Tema::TIPOGRAFIAS,
             'reparacion'  => $reparacion,
             'diagnostico' => $diagnostico,
+            'esquema'     => $paso === 3 ? $this->estadoDelEsquema() : null,
             'sinPlantilla' => true,
         ]);
+    }
+
+    /**
+     * Qué hay en la base antes de tocarla.
+     *
+     * Lo mira el controlador y no la vista. La vista lo intentaba por su
+     * cuenta, pero en esa petición todavía no hay conexión abierta —los datos
+     * están en config/instalacion.php y la aplicación no se conecta mientras no
+     * esté instalada—, así que la consulta fallaba, el error se tragaba, y el
+     * paso 3 anunciaba «no hay ninguna tabla» y preseleccionaba la instalación
+     * limpia. Sobre una base con datos, eso es ofrecerse a borrarlos sin que
+     * nada avise.
+     *
+     * @return array{conectado: bool, existentes: array<int,string>, version: ?string}
+     */
+    private function estadoDelEsquema(): array
+    {
+        if (!$this->reconectar()) {
+            return ['conectado' => false, 'existentes' => [], 'version' => null];
+        }
+        try {
+            return [
+                'conectado'  => true,
+                'existentes' => Esquema::existentes(),
+                'version'    => Esquema::versionInstalada(),
+            ];
+        } catch (\Throwable) {
+            return ['conectado' => false, 'existentes' => [], 'version' => null];
+        }
     }
 
     /**
@@ -663,7 +693,7 @@ final class Instalador
         if (mb_strlen($nombreEvento) < 3) {
             $errores['ev_nombre'] = 'Escribe el nombre del evento.';
         }
-        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $fecha) || strtotime($fecha) === false) {
+        if (!Evento::fechaValida($fecha)) {
             $errores['ev_inicio'] = 'Elige la fecha de inicio.';
         }
         if ($errores) {
