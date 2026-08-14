@@ -863,6 +863,74 @@ $admin->get('/admin', false);
 comprobar('tras salir, el panel vuelve a pedir acceso', $admin->codigo === 303);
 
 /* =========================================================================
+   11 · El segundo factor, de principio a fin
+   -------------------------------------------------------------------------
+   Va al final porque deja la cuenta con segundo factor activado.
+
+   Este camino no se probaba nunca —la instalación de la prueba lo desactiva—
+   y ahí se escondía el peor fallo que ha tenido la plataforma: al rotar la
+   sesión se vaciaba la cookie en memoria, guardarDatos() no encontraba la
+   sesión y pendiente_2fa se quedaba activo para siempre. El administrador
+   escribía su código correcto y volvía a la misma pantalla, sin salida.
+   ========================================================================= */
+titulo('Segundo factor');
+
+// Totp.php se protege con defined('EVENTOS_TIC') y termina si no está: sin
+// esto, el require corta el guion entero sin decir nada.
+defined('EVENTOS_TIC') || define('EVENTOS_TIC', true);
+require_once $RAIZ . '/app/Nucleo/Totp.php';
+$codigoDe = static fn(string $secreto): string => App\Nucleo\Totp::codigoActual($secreto);
+
+$dosFactores = new Cliente($BASE);
+$dosFactores->get('/admin/entrar');
+$dosFactores->post('/admin/entrar', [
+    'correo' => 'aerazo@narino.gov.co',
+    'clave'  => 'una frase larga y facil de recordar',
+]);
+
+$html = $dosFactores->get('/admin/activar-2fa');
+comprobar('la pantalla de alta muestra el secreto y su QR',
+    str_contains($html, 'otpauth') || str_contains($html, '<svg'));
+preg_match('#letter-spacing:\.14em[^>]*>([A-Z2-7 ]{32,})<#', $html, $m);
+$secreto = str_replace(' ', '', trim($m[1] ?? ''));
+comprobar('el secreto está en base32 y mide 32 caracteres',
+    (bool) preg_match('/^[A-Z2-7]{32}$/', $secreto), $secreto);
+
+$html = $dosFactores->post('/admin/activar-2fa', ['codigo' => '000000']);
+comprobar('un código equivocado no lo activa', str_contains($html, 'no coincide'));
+
+$html = $dosFactores->post('/admin/activar-2fa', ['codigo' => $codigoDe($secreto)]);
+comprobar('con el código correcto se entra al panel',
+    str_contains($html, 'Indicadores') || str_contains($html, 'Panel'));
+comprobar('y queda confirmado en la base',
+    (int) $pdo->query("SELECT totp_confirmado FROM {$BD['prefijo']}usuario
+                        WHERE correo = 'aerazo@narino.gov.co'")->fetchColumn() === 1);
+
+// Y lo que de verdad estaba roto: volver a entrar pasando por la verificación.
+$dosFactores->post('/admin/salir', []);
+$vuelve = new Cliente($BASE);
+$vuelve->get('/admin/entrar');
+$html = $vuelve->post('/admin/entrar', [
+    'correo' => 'aerazo@narino.gov.co',
+    'clave'  => 'una frase larga y facil de recordar',
+]);
+comprobar('ahora el acceso pide el segundo factor',
+    str_contains($html, 'Verificación en dos pasos') || str_contains($html, 'seis dígitos'));
+
+$vuelve->get('/admin', false);
+comprobar('y el panel no se abre saltándose la verificación',
+    $vuelve->codigo === 303 && str_contains($vuelve->cabecera('Location'), '/admin/verificar'),
+    $vuelve->codigo . ' → ' . $vuelve->cabecera('Location'));
+
+$html = $vuelve->post('/admin/verificar', ['codigo' => $codigoDe($secreto)]);
+comprobar('con el código correcto se entra',
+    str_contains($html, 'Indicadores') || str_contains($html, 'Panel'));
+
+$vuelve->get('/admin', false);
+comprobar('y el panel ya no rebota a la verificación', $vuelve->codigo === 200,
+    $vuelve->codigo . ' → ' . $vuelve->cabecera('Location'));
+
+/* =========================================================================
    Resultado
    ========================================================================= */
 echo "\n" . str_repeat('─', 62) . "\n";
