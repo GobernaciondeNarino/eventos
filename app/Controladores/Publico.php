@@ -24,36 +24,9 @@ use App\Nucleo\Url;
  */
 final class Publico
 {
-    /**
-     * No hay ningún evento que mostrar.
-     *
-     * Es un 503 legítimo —el servicio no está disponible todavía—, pero un 503
-     * a secas deja a quien administra sin saber qué hacer, y a quien visita con
-     * un botón «Ir al inicio» que devuelve a esta misma pantalla. Se dice cuál
-     * es el siguiente paso según lo que falte de verdad.
-     */
-    private function sinEvento(): never
-    {
-        if (!\App\Nucleo\Instalacion::hayAdministrador()) {
-            Respuesta::error(503, 'La instalación quedó a medias',
-                'Las tablas están creadas pero no hay ninguna cuenta administradora, así que '
-                . 'tampoco hay quién publique un evento. El asistente de instalación volvió a '
-                . 'abrirse para terminarla.',
-                [['texto' => 'Terminar la instalación', 'url' => u('/instalar'), 'principal' => true]]);
-        }
-
-        Respuesta::error(503, 'Todavía no hay un evento abierto',
-            'La plataforma está instalada pero el equipo aún no ha publicado ningún evento. '
-            . 'Se crea desde el panel, en «Eventos».',
-            [['texto' => 'Entrar al panel', 'url' => u('/admin/entrar'), 'principal' => true]]);
-    }
-
     public function inicio(Peticion $peticion): void
     {
-        $evento = App::eventoActivo();
-        if (!$evento) {
-            $this->sinEvento();
-        }
+        $evento = App::eventoExigido();
 
         Respuesta::vista('publico/inicio', [
             'titulo'   => 'Ingreso',
@@ -68,10 +41,7 @@ final class Publico
 
     public function preregistro(Peticion $peticion): void
     {
-        $evento = App::eventoActivo();
-        if (!$evento) {
-            $this->sinEvento();
-        }
+        $evento = App::eventoExigido();
 
         $yo = Guardia::personaActual();
         $errores = [];
@@ -283,10 +253,7 @@ final class Publico
 
     public function agenda(Peticion $peticion): void
     {
-        $evento = App::eventoActivo();
-        if (!$evento) {
-            $this->sinEvento();
-        }
+        $evento = App::eventoExigido();
 
         $jornadas = Evento::jornadas((int) $evento['id']);
         $dia = $peticion->entero('dia', (int) ($jornadas[0]['numero'] ?? 1));

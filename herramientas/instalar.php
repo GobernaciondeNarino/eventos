@@ -146,8 +146,12 @@ if ($bandera('reparar')) {
    ========================================================================= */
 
 if ($bandera('ayuda') || $bandera('help')) {
-    $linea(trim((string) preg_replace('/^.*?\/\*\*(.*?)\*\/.*$/s', '$1',
-        (string) file_get_contents(__FILE__))));
+    // La ayuda es el comentario de cabecera de este mismo archivo: así no hay
+    // dos textos que puedan contradecirse.
+    preg_match('/\/\*\*(.*?)\*\//s', (string) file_get_contents(__FILE__), $m);
+    foreach (explode("\n", $m[1] ?? '') as $l) {
+        $linea(rtrim((string) preg_replace('/^\s*\*\s?/', '', $l)));
+    }
     exit(0);
 }
 

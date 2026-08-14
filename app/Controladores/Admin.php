@@ -35,10 +35,7 @@ final class Admin
 
     public function panel(Peticion $peticion): void
     {
-        $evento = App::eventoActivo();
-        if (!$evento) {
-            Respuesta::redirigir('/admin/eventos', 'Crea el primer evento para empezar.', 'warn');
-        }
+        $evento = App::eventoExigido();
 
         Respuesta::vista('admin/panel', [
             'titulo'      => 'Panel',
@@ -96,7 +93,7 @@ final class Admin
     public function escaner(Peticion $peticion): void
     {
         $usuario = Guardia::usuarioActual();
-        $evento = App::eventoActivo();
+        $evento = App::eventoExigido();
 
         Respuesta::vista('admin/escaner', [
             'titulo'      => 'Escanear carnet',
@@ -116,7 +113,7 @@ final class Admin
      */
     public function buscarPersona(Peticion $peticion): void
     {
-        $evento = App::eventoActivo();
+        $evento = App::eventoExigido();
         $texto = $peticion->campo('q');
 
         if (mb_strlen($texto) < 3) {
@@ -144,7 +141,7 @@ final class Admin
 
     public function registros(Peticion $peticion): void
     {
-        $evento = App::eventoActivo();
+        $evento = App::eventoExigido();
         $filtros = [
             'texto' => $peticion->query('q'),
             'rol'   => $peticion->query('rol'),
@@ -172,7 +169,7 @@ final class Admin
      */
     public function exportar(Peticion $peticion): void
     {
-        $evento = App::eventoActivo();
+        $evento = App::eventoExigido();
         $conSensibles = $peticion->query('caracterizacion') === '1';
 
         if ($conSensibles && !Guardia::puede('administrador')) {
@@ -266,7 +263,7 @@ final class Admin
 
     public function codigosDia(Peticion $peticion): void
     {
-        $evento = App::eventoActivo();
+        $evento = App::eventoExigido();
         $jornadas = Evento::jornadas((int) $evento['id']);
 
         foreach ($jornadas as &$j) {
@@ -288,7 +285,7 @@ final class Admin
 
     public function imprimirCodigo(Peticion $peticion, array $parametros): void
     {
-        $evento = App::eventoActivo();
+        $evento = App::eventoExigido();
         $jornada = Evento::jornada((int) $evento['id'], (int) $parametros['numero']);
         if (!$jornada) {
             Respuesta::error(404, 'Jornada no encontrada', 'Ese día no existe en este evento.');
@@ -308,7 +305,7 @@ final class Admin
 
     public function rotarCodigo(Peticion $peticion): void
     {
-        $evento = App::eventoActivo();
+        $evento = App::eventoExigido();
         $numero = $peticion->entero('numero');
         if (!Evento::jornada((int) $evento['id'], $numero)) {
             Respuesta::redirigir('/admin/qr-dias', 'Esa jornada no existe.', 'warn');
@@ -325,7 +322,7 @@ final class Admin
 
     public function expositores(Peticion $peticion): void
     {
-        $evento = App::eventoActivo();
+        $evento = App::eventoExigido();
         $estado = $peticion->query('estado');
 
         $donde = ['p.evento_id = :evento'];
@@ -372,7 +369,7 @@ final class Admin
      */
     public function decidirPropuesta(Peticion $peticion): void
     {
-        $evento = App::eventoActivo();
+        $evento = App::eventoExigido();
         $id = $peticion->entero('propuesta');
         $decision = $peticion->campo('decision');
         $observacion = mb_substr($peticion->campo('observacion'), 0, 1000);
@@ -577,7 +574,7 @@ final class Admin
 
     public function identidad(Peticion $peticion): void
     {
-        $evento = App::eventoActivo();
+        $evento = App::eventoExigido();
         $tema = Tema::del((int) $evento['id']);
 
         Respuesta::vista('admin/identidad', [
@@ -592,7 +589,7 @@ final class Admin
 
     public function guardarIdentidad(Peticion $peticion): void
     {
-        $evento = App::eventoActivo();
+        $evento = App::eventoExigido();
         $eventoId = (int) $evento['id'];
 
         Bd::actualizar('evento', [

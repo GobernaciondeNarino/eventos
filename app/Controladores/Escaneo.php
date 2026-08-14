@@ -242,7 +242,15 @@ final class Escaneo
             Respuesta::redirigir('/admin/escaner', 'Credencial no reconocida.', 'warn');
         }
 
+        // Aquí no vale redirigir a crear el evento: quien pulsa este botón está
+        // de pie en la puerta con alguien esperando. Se vuelve al escáner con el
+        // motivo, que es la pantalla desde la que vino.
         $evento = App::eventoActivo();
+        if (!$evento) {
+            Respuesta::redirigir('/admin/escaner',
+                'No hay ningún evento activo, así que no se puede registrar el ingreso.', 'warn');
+        }
+
         $numero = $peticion->entero('jornada');
         $jornada = $numero > 0
             ? Evento::jornada((int) $evento['id'], $numero)

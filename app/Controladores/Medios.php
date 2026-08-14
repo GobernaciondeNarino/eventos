@@ -62,7 +62,7 @@ final class Medios
     /** QR de una jornada, para incrustar o descargar. */
     public function qrDia(Peticion $peticion, array $parametros): void
     {
-        $evento = App::eventoActivo();
+        $evento = App::eventoExigido();
         $jornada = Evento::jornada((int) $evento['id'], (int) $parametros['numero']);
         if (!$jornada) {
             Respuesta::error(404, 'Jornada no encontrada', 'Ese día no existe en este evento.');

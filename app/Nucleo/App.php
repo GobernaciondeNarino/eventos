@@ -236,6 +236,44 @@ final class App
         Respuesta::compartir('rutaActual', self::peticion()->ruta());
     }
 
+    /**
+     * El evento activo, o no se sigue.
+     *
+     * Casi todas las pantallas cuelgan de un evento y hacen `$evento['id']` sin
+     * más. Sin evento eso es un aviso de índice indefinido, y como el manejador
+     * de errores convierte los avisos en excepciones, la pantalla acaba en un
+     * 500 sin explicación. Pasa de verdad: entre que se instala y que alguien
+     * crea el evento, y cada vez que se borra el único que había.
+     *
+     * La salida depende de quién esté mirando, porque no es la misma situación:
+     * el equipo puede crear el evento y se le lleva allí; al visitante solo se
+     * le puede decir que todavía no hay nada, que es un 503 legítimo.
+     */
+    public static function eventoExigido(): array
+    {
+        $evento = self::eventoActivo();
+        if ($evento !== null) {
+            return $evento;
+        }
+
+        if (str_starts_with(self::peticion()->ruta(), '/admin')) {
+            Respuesta::redirigir('/admin/eventos', 'Crea el primer evento para empezar.', 'warn');
+        }
+
+        if (!Instalacion::hayAdministrador()) {
+            Respuesta::error(503, 'La instalación quedó a medias',
+                'Las tablas están creadas pero no hay ninguna cuenta administradora, así que '
+                . 'tampoco hay quién publique un evento. El asistente de instalación volvió a '
+                . 'abrirse para terminarla.',
+                [['texto' => 'Terminar la instalación', 'url' => Url::a('/instalar'), 'principal' => true]]);
+        }
+
+        Respuesta::error(503, 'Todavía no hay un evento abierto',
+            'La plataforma está instalada pero el equipo aún no ha publicado ningún evento. '
+            . 'Se crea desde el panel, en «Eventos».',
+            [['texto' => 'Entrar al panel', 'url' => Url::a('/admin/entrar'), 'principal' => true]]);
+    }
+
     /** El evento marcado como activo; si no hay ninguno, el más reciente. */
     public static function eventoActivo(): ?array
     {

@@ -424,6 +424,27 @@ comprobar('y manda al panel a crearlo',
     str_contains($visitante->cuerpo, 'Todavía no hay un evento abierto')
     && str_contains($visitante->cuerpo, 'Entrar al panel'));
 
+// Casi todas las pantallas del equipo hacen $evento['id'] sin más. Sin evento
+// eso es un aviso de índice indefinido, y el manejador de errores lo convierte
+// en excepción: un 500 sin explicación en cada pantalla. Deben llevar a crear
+// el evento, que es lo único que se puede hacer.
+$conSesion = new Cliente($BASE);
+$conSesion->get('/admin/entrar');
+$conSesion->post('/admin/entrar', [
+    'correo' => 'aerazo@narino.gov.co',
+    'clave'  => 'una frase larga y facil de recordar',
+]);
+foreach (['/admin', '/admin/escaner', '/admin/registros', '/admin/qr-dias',
+          '/admin/expositores', '/admin/identidad'] as $ruta) {
+    $conSesion->get($ruta, false);
+    comprobar("sin evento, $ruta no revienta",
+        $conSesion->codigo === 303 && str_contains($conSesion->cabecera('Location'), '/admin/eventos'),
+        $conSesion->codigo . ' → ' . $conSesion->cabecera('Location'));
+}
+$html = $conSesion->get('/admin/eventos');
+comprobar('y la pantalla de eventos sí carga, para poder crearlo',
+    str_contains($html, 'Eventos') && !str_contains($html, 'Algo salió mal'));
+
 // Sin ninguna cuenta: ya no hay quien lo cree.
 $borrar(['sesion', 'usuario']);
 $perdido = new Cliente($BASE);
@@ -765,7 +786,15 @@ $sinTestigo->get('/preregistro');
 $html = $sinTestigo->post('/preregistro', ['_testigo' => 'falso', 'correo' => 'x@y.co', 'nombre' => 'Prueba XSS']);
 comprobar('un envío con testigo falso se rechaza', str_contains($html, 'demasiado tiempo abierta'));
 
-foreach (['/app/Nucleo/Bd.php', '/config/config.php', '/almacen/registro/', '/pruebas/flujos.js'] as $ruta) {
+foreach ([
+    '/app/Nucleo/Bd.php',
+    '/config/config.php',
+    '/config/instalacion.php',
+    '/almacen/registro/',
+    '/pruebas/flujos.js',
+    '/herramientas/instalar.php',
+    '/herramientas/cuenta.php',
+] as $ruta) {
     $c = new Cliente($BASE);
     $c->get($ruta, false);
     comprobar("no se sirve $ruta", $c->codigo === 404 || $c->codigo === 403, (string) $c->codigo);
