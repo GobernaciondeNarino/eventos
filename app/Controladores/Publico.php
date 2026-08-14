@@ -61,6 +61,16 @@ final class Publico
 
         if ($peticion->esPost()) {
             $valores = $this->valoresEnviados($peticion);
+
+            // El correo de quien ya está identificado no se toca. En pantalla el
+            // campo va en solo lectura, pero eso lo decide el navegador: un
+            // envío hecho a mano con el correo de otra persona hacía que
+            // Persona::registrar() encontrara ESE registro y lo sobrescribiera
+            // con los datos del atacante. El correo es la identidad aquí.
+            if ($yo !== null) {
+                $valores['correo'] = (string) $yo['correo'];
+            }
+
             $errores = $this->validarPreregistro($valores, $peticion, $yo !== null);
 
             // Un correo ya registrado no se puede tocar desde aquí.

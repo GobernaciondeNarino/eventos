@@ -46,6 +46,14 @@ final class Peticion
         }
 
         $this->ruta = '/' . trim($uri, '/');
+
+        // Llegar por /index.php es lo mismo que llegar a la portada. Pasa más
+        // de lo que parece: es lo que queda en el portapapeles al copiar la
+        // dirección del punto de entrada, y también lo que sirve un servidor
+        // sin reescritura de URL. Sin esto respondía 404.
+        if ($this->ruta === '/index.php') {
+            $this->ruta = '/';
+        }
         $this->consulta = $_GET;
         $this->cuerpo = $_POST;
         $this->archivos = $_FILES;

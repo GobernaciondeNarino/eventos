@@ -20,9 +20,9 @@ $acciones = $acciones ?? [];
       <?php endforeach; ?>
     <?php else: ?>
       <a class="btn btn--primary" href="<?= e(u('/')) ?>">Ir al inicio</a>
-      <?php if ($codigo === 419): ?>
-        <a class="btn" href="<?= e($_SERVER['HTTP_REFERER'] ?? u('/')) ?>">Volver a intentarlo</a>
-      <?php endif; ?>
+      <?php /* Antes había aquí un «Volver a intentarlo» apuntando al Referer.
+               En un rechazo por testigo inválido, ese Referer es justo la página
+               del atacante: el error terminaba invitando a volver a ella. */ ?>
     <?php endif; ?>
   </div>
 </div>

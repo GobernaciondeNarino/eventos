@@ -29,18 +29,54 @@ final class Config
         return is_file(self::rutaArchivo());
     }
 
+    /**
+     * Carga config/config.php, y si no se puede, lo dice.
+     *
+     * Antes era un require a secas. Si el archivo existía pero PHP no podía
+     * leerlo —propietario root tras copiarlo por SSH, permisos 0600 de otro
+     * usuario: lo normal en un servidor recién montado— el require producía un
+     * error fatal antes de que hubiera manejador de errores, y el visitante
+     * recibía una página en blanco de cero bytes. También el diagnóstico, que
+     * es justo lo que hacía falta en ese momento.
+     */
     public static function cargar(): void
     {
         if (self::$cargada) {
             return;
         }
         self::$cargada = true;
-        if (self::existe()) {
-            $datos = require self::rutaArchivo();
-            if (is_array($datos)) {
-                self::$valores = $datos;
-            }
+
+        $ruta = self::rutaArchivo();
+        if (!is_file($ruta)) {
+            return;
         }
+        if (!is_readable($ruta)) {
+            self::$problema = 'config/config.php existe pero PHP no puede leerlo. '
+                . 'Revisa su propietario y sus permisos: debe poder leerlo el usuario del dominio.';
+            return;
+        }
+
+        try {
+            $datos = require $ruta;
+        } catch (\Throwable $e) {
+            self::$problema = 'config/config.php no se pudo interpretar: ' . $e->getMessage();
+            return;
+        }
+
+        if (!is_array($datos)) {
+            self::$problema = 'config/config.php no devuelve un arreglo. Puede haber quedado truncado.';
+            return;
+        }
+        self::$valores = $datos;
+    }
+
+    private static string $problema = '';
+
+    /** Qué impidió leer la configuración, si es que algo lo impidió. */
+    public static function problema(): string
+    {
+        self::cargar();
+        return self::$problema;
     }
 
     public static function obtener(string $clave, mixed $porDefecto = null): mixed

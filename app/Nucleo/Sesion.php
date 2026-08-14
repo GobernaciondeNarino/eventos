@@ -228,5 +228,11 @@ final class Sesion
         Bd::ejecutar('DELETE FROM {sesion} WHERE expira_en < NOW()');
         Bd::ejecutar('DELETE FROM {codigo_acceso} WHERE expira_en < DATE_SUB(NOW(), INTERVAL 1 DAY)');
         Bd::ejecutar('DELETE FROM {intento} WHERE creado_en < DATE_SUB(NOW(), INTERVAL 1 DAY)');
+
+        // Los registros de error viejos se van con lo demás. Registro::podar()
+        // existía desde el principio y no lo llamaba nadie: en una instalación
+        // con el correo caído, esa carpeta crece con una línea por cada código
+        // de acceso pedido y no la vacía nunca nadie.
+        Registro::podar(30);
     }
 }

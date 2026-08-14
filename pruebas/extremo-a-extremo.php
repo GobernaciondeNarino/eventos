@@ -680,6 +680,23 @@ $intruso->get('/carnet', false);
 comprobar('no quedó con sesión de esa persona', $intruso->codigo === 303,
     (string) $intruso->codigo);
 
+// Y con sesión propia abierta tampoco: el «readonly» del correo lo decide el
+// navegador, y un envío hecho a mano llegaba al registro de otra persona.
+$html = $maria->post('/preregistro', [
+    'correo' => 'cbolanos@tumaco.gov.co',          // el de otro asistente
+    'nombre' => 'María Fernanda Zambrano Corregida',
+    'tipo_documento' => 'CC', 'documento' => '1085234567',
+    'habeas' => '1',
+]);
+$ajena = $pdo->query("SELECT nombre FROM {$BD['prefijo']}persona
+                       WHERE correo = 'cbolanos@tumaco.gov.co'")->fetchColumn();
+comprobar('un asistente identificado no puede escribir sobre otro registro',
+    $ajena !== 'María Fernanda Zambrano Corregida', (string) $ajena);
+$propia = $pdo->query("SELECT nombre FROM {$BD['prefijo']}persona
+                        WHERE correo = 'mzambrano@narino.gov.co'")->fetchColumn();
+comprobar('lo enviado se aplica a su propio registro',
+    $propia === 'María Fernanda Zambrano Corregida', (string) $propia);
+
 $suplantada = $pdo->query("SELECT nombre FROM {$BD['prefijo']}persona
                             WHERE correo = 'mzambrano@narino.gov.co'")->fetchColumn();
 comprobar('y no le cambió el nombre', $suplantada !== 'Persona Suplantadora',

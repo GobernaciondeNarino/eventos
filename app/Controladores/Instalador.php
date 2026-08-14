@@ -255,6 +255,15 @@ final class Instalador
             ];
         }
 
+        if (Config::problema() !== '') {
+            $lista[] = [
+                'nombre'  => 'Lectura de la configuración',
+                'detalle' => Config::problema(),
+                'valor'   => 'ilegible',
+                'estado'  => 'fail',
+            ];
+        }
+
         if (Config::existe()) {
             $marca = (bool) Config::obtener('instalado', false);
             $lista[] = [

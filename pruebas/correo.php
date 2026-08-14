@@ -86,6 +86,31 @@ comprobar('las tildes y la ñ sobreviven',
     str_contains(base64_decode(str_replace("\r\n", '', explode("\r\n\r\n", $partes[0], 2)[1])), 'María'));
 
 /* ------------------------------------------------------------------------
+   Cabeceras con tildes (RFC 2047)
+   ------------------------------------------------------------------------ */
+echo "\nCabeceras con tildes\n";
+
+$codificar = new ReflectionMethod(Correo::class, 'palabraCodificada');
+$codificar->setAccessible(true);
+$palabra = static fn(string $t, bool $comillas = true): string => (string) $codificar->invoke(null, $t, $comillas);
+
+comprobar('un texto ASCII se deja tal cual', $palabra('Eventos TIC', false) === 'Eventos TIC');
+comprobar('y entre comillas cuando va en un From', $palabra('Eventos TIC') === '"Eventos TIC"');
+
+$conTildes = $palabra('Cumbre Tecnológica CIOS Nariño', false);
+comprobar('con tildes se codifica en base64', str_contains($conTildes, '=?UTF-8?B?'));
+comprobar('y se recupera al decodificar',
+    mb_decode_mimeheader($conTildes) === 'Cumbre Tecnológica CIOS Nariño', $conTildes);
+
+$largo = $palabra('Cumbre Tecnológica de Innovación y Gobierno Abierto CIOS Nariño 2026', false);
+$lineas = explode("\r\n", $largo);
+$excedidas = array_filter($lineas, static fn(string $l): bool => strlen(trim($l)) > 75);
+comprobar('ningún trozo pasa de 75 caracteres', $excedidas === [],
+    $excedidas ? 'el mayor mide ' . max(array_map('strlen', $excedidas)) : '');
+comprobar('y el texto largo también se recupera entero',
+    mb_decode_mimeheader($largo) === 'Cumbre Tecnológica de Innovación y Gobierno Abierto CIOS Nariño 2026');
+
+/* ------------------------------------------------------------------------
    Inyección de cabeceras
    ------------------------------------------------------------------------ */
 echo "\nInyección de cabeceras\n";

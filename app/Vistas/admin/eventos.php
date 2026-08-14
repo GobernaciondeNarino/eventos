@@ -38,7 +38,7 @@ $estados = [
             <div class="stack" style="gap:2px;min-width:0">
               <strong style="font-weight:500;color:var(--c-title)"><?= e($ev['nombre']) ?></strong>
               <span class="mono muted" style="font-size:11px">
-                <?= (int) $ev['activo'] === 1 ? 'Evento activo · visible para los asistentes' : ($ev['sede'] ?: 'Sin sede definida') ?>
+                <?= (int) $ev['activo'] === 1 ? 'Evento activo · visible para los asistentes' : e((string) ($ev['sede'] ?: 'Sin sede definida')) ?>
               </span>
             </div>
             <span class="mono" style="font-size:12.5px;color:var(--c-text)"><?= e(fecha((string) $ev['fecha_inicio'])) ?></span>

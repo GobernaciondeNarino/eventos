@@ -45,7 +45,7 @@ final class Correo
 
         $limite = 'lim_' . bin2hex(random_bytes(12));
         $cabeceras = implode("\r\n", [
-            'From: "' . $nombreRemitente . '" <' . $remitente . '>',
+            'From: ' . self::palabraCodificada($nombreRemitente) . ' <' . $remitente . '>',
             'Reply-To: ' . $remitente,
             'MIME-Version: 1.0',
             'Content-Type: multipart/alternative; boundary="' . $limite . '"',
@@ -68,7 +68,7 @@ final class Correo
             . "--$limite\r\n" . $parte('text/html', $cuerpoHtml) . "\r\n"
             . "--$limite--\r\n";
 
-        $asuntoCodificado = '=?UTF-8?B?' . base64_encode($asunto) . '?=';
+        $asuntoCodificado = self::palabraCodificada($asunto, false);
 
         if ($modo === 'registro') {
             Registro::aviso('Correo no enviado (modo registro)', [
@@ -89,6 +89,33 @@ final class Correo
             Registro::error('mail() falló', ['para' => $destinatario, 'asunto' => $asunto]);
         }
         return $enviado;
+    }
+
+    /**
+     * Texto listo para ir en una cabecera de correo (RFC 2047).
+     *
+     * El nombre del evento lleva tildes y ñ. Metido tal cual en From, la
+     * cabecera queda con bytes de 8 bits y hay receptores estrictos —Exchange y
+     * Office 365, entre otros— que rechazan el mensaje entero. Y un solo
+     * encoded-word no puede pasar de 75 caracteres, así que si hace falta se
+     * parte en varios, que es lo que dice la norma.
+     *
+     * Si el texto es ASCII puro no se toca: así los asuntos normales siguen
+     * leyéndose tal cual en cualquier cliente.
+     */
+    private static function palabraCodificada(string $texto, bool $entreComillas = true): string
+    {
+        if (preg_match('/^[\x20-\x7E]*$/', $texto)) {
+            return $entreComillas ? '"' . $texto . '"' : $texto;
+        }
+
+        // 45 bytes por trozo: en base64 son 60 caracteres, y con el envoltorio
+        // «=?UTF-8?B?…?=» el encoded-word queda por debajo de los 75 del RFC.
+        $trozos = [];
+        foreach (mb_str_split($texto, 15, 'UTF-8') as $parte) {
+            $trozos[] = '=?UTF-8?B?' . base64_encode($parte) . '?=';
+        }
+        return implode("\r\n ", $trozos);
     }
 
     /**

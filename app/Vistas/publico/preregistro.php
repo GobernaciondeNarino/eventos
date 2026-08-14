@@ -8,13 +8,15 @@ defined('EVENTOS_TIC') || exit;
 
 use App\Datos;
 
-$v = static fn(string $clave, string $porDefecto = ''): string => (string) ($valores[$clave] ?? $porDefecto);
-$err = static fn(string $clave): string => (string) ($errores[$clave] ?? '');
-
-// Si el correo vino por la portada, se precarga.
-if ($v('correo') === '' && isset($_GET['correo'])) {
+// Si el correo vino por la portada, se precarga. Esto va ANTES de definir $v:
+// una función flecha captura las variables por valor, así que $v se quedaba con
+// la copia vieja de $valores y el correo del embudo principal nunca aparecía.
+if (($valores['correo'] ?? '') === '' && isset($_GET['correo'])) {
     $valores['correo'] = mb_strtolower(trim((string) $_GET['correo']));
 }
+
+$v = static fn(string $clave, string $porDefecto = ''): string => (string) ($valores[$clave] ?? $porDefecto);
+$err = static fn(string $clave): string => (string) ($errores[$clave] ?? '');
 $hayPropuesta = $v('tema') !== '' || !empty($valores['expositor']);
 guiones('preregistro.js');
 ?>

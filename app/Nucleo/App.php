@@ -173,7 +173,12 @@ final class App
             . "frame-ancestors 'none'; base-uri 'none'; object-src 'none'");
 
         if ($peticion->esSegura()) {
-            header('Strict-Transport-Security: max-age=31536000; includeSubDomains');
+            // Sin includeSubDomains. Esta aplicación vive en una subcarpeta de
+            // un dominio compartido con otras: no le corresponde obligar a todo
+            // narino.gov.co y a cada uno de sus subdominios a hablar solo por
+            // HTTPS durante un año. Esa decisión es del área de sistemas, y se
+            // toma en el servidor, no aquí.
+            header('Strict-Transport-Security: max-age=31536000');
         }
     }
 

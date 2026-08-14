@@ -46,7 +46,9 @@ DirectoryIndex index.php
 # constante EVENTOS_TIC y termina si no está definida. Esto es la primera
 # barrera; esa comprobación es la segunda.
 # -------------------------------------------------------------------------
-RedirectMatch 404 (?i)^/?(.*/)?(app|config|almacen|docs|herramientas|pruebas)/
+# .git incluido: es habitual preparar el servidor con «git clone» dentro de
+# httpdocs, y sin esto se puede descargar el código y todo el historial.
+RedirectMatch 404 (?i)^/?(.*/)?(app|config|almacen|docs|herramientas|pruebas|\.git|\.github)/
 
 # Archivos sueltos que tampoco deben verse
 <FilesMatch "(?i)(^\.|\.(sql|log|md|json|lock|ini|bak|old|swp|dist|yml|yaml)$|~$|^(composer|package)\.)">
@@ -75,7 +77,7 @@ RedirectMatch 404 (?i)^/?(.*/)?(app|config|almacen|docs|herramientas|pruebas)/
     Header always unset Server
 
     # HSTS: descomentar cuando el dominio tenga certificado válido.
-    # Header always set Strict-Transport-Security "max-age=31536000; includeSubDomains"
+    # Header always set Strict-Transport-Security "max-age=31536000"
 
     <FilesMatch "\.(csv|vcf)$">
         Header always set Cache-Control "no-store, private"
