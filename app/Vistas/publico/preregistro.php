@@ -16,7 +16,7 @@ if ($v('correo') === '' && isset($_GET['correo'])) {
     $valores['correo'] = mb_strtolower(trim((string) $_GET['correo']));
 }
 $hayPropuesta = $v('tema') !== '' || !empty($valores['expositor']);
-$guiones = ['preregistro.js'];
+guiones('preregistro.js');
 ?>
 <form class="view view--narrow stack stack--4" method="post" action="<?= e(u('/preregistro')) ?>" novalidate>
   <?= testigo() ?>

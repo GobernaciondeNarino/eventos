@@ -19,7 +19,7 @@ $campos = [
     'muted'   => ['Color de metadatos', 'Rótulos pequeños'],
     'onBrand' => ['Texto sobre el principal', 'Contraste de la barra'],
 ];
-$guiones = ['identidad.js'];
+guiones('identidad.js');
 ?>
 <form class="view view--wide split" method="post" action="<?= e(u('/admin/identidad')) ?>"
       enctype="multipart/form-data" style="align-items:start"

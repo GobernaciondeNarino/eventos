@@ -8,7 +8,7 @@ defined('EVENTOS_TIC') || exit;
 
 $marca = require __DIR__ . '/../parciales/marca.php';
 $rol = (string) $persona['rol'];
-$guiones = ['carnet.js'];
+guiones('carnet.js');
 ?>
 <div class="view view--medium split--reverse">
 

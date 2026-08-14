@@ -42,6 +42,18 @@ function testigo(): string
     return App\Nucleo\Csrf::campo();
 }
 
+/**
+ * Declara el JavaScript propio de la pantalla.
+ *
+ * Se llama desde la vista y la plantilla lo recoge. Tiene que pasar por aquí y
+ * no por una variable suelta: la vista y la plantilla se pintan por separado y
+ * no comparten ámbito.
+ */
+function guiones(string ...$archivos): void
+{
+    App\Nucleo\Respuesta::guiones(...$archivos);
+}
+
 /** Número con separador de miles colombiano. */
 function numero(int|float|string|null $n): string
 {

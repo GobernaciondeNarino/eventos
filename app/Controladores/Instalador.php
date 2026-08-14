@@ -71,7 +71,11 @@ final class Instalador
             }
 
             [$paso, $errores, $estado] = $this->procesar($peticion, $accion, $estado, $reparacion);
-            $this->guardarEstado($estado + ['paso' => $paso]);
+            // El paso nuevo va delante: con la unión al revés, el 'paso' que ya
+            // traía la cookie ganaba siempre y el asistente se quedaba clavado
+            // en el mismo sitio en cuanto alguien navegaba sin el ?paso= de la
+            // redirección.
+            $this->guardarEstado(['paso' => $paso] + $estado);
 
             if (!$errores) {
                 // Terminada la instalación, esta misma ruta queda cerrada por el
@@ -676,6 +680,13 @@ final class Instalador
             // datos, cambiarla dejaría ilegibles todos los documentos guardados.
             $llave = (string) Config::obtener('llave_cifrado', '') ?: Cripto::generarLlave();
 
+            // Lo que este asistente decide, lo que ya hubiera en el archivo, y
+            // los valores por defecto: en ese orden, porque con la unión gana el
+            // de la izquierda. Reparar una instalación no puede llevarse por
+            // delante lo que alguien ajustó a mano —los proxies de confianza, el
+            // remitente del correo— solo porque el formulario no lo pregunta.
+            $previa = Config::todo();
+
             $configuracion = [
                 'instalado'       => true,
                 'version'         => APP_VERSION,
@@ -686,16 +697,17 @@ final class Instalador
                 'bd_clave'        => $conexion['clave'],
                 'bd_prefijo'      => $conexion['prefijo'],
                 'llave_cifrado'   => $llave,
-                'zona_horaria'    => 'America/Bogota',
                 'url_base'        => rtrim(\App\Nucleo\App::peticion()->origen()
                                         . \App\Nucleo\App::peticion()->base(), '/'),
+                'exigir_2fa_admin' => (bool) ($estado['admin']['exigir_2fa'] ?? true),
+                'instalado_en'    => $previa['instalado_en'] ?? date('c'),
+            ] + $previa + [
+                'zona_horaria'    => 'America/Bogota',
                 'correo_remitente' => 'no-responder@' . $this->dominioDelSitio(),
                 'correo_nombre'   => $nombreEvento,
                 'modo_correo'     => function_exists('mail') ? 'php' : 'registro',
-                'exigir_2fa_admin' => (bool) ($estado['admin']['exigir_2fa'] ?? true),
                 'proxies_confiables' => $this->proxiesDetectados(),
                 'depurar'         => false,
-                'instalado_en'    => date('c'),
             ];
 
             // ORDEN IMPORTANTE. La configuración se escribe al final, y solo si
@@ -719,7 +731,21 @@ final class Instalador
                 (string) $estado['admin']['clave_hash']
             );
 
+            // Si ya hay un evento activo, este paso no crea otro. Reparando una
+            // instalación que ya tiene registros, crear uno nuevo lo dejaba
+            // como activo y el que tenía a toda la gente inscrita pasaba a
+            // segundo plano: los asistentes veían un evento vacío.
             $eventoId = (int) ($estado['evento_id'] ?? 0);
+            if ($eventoId === 0) {
+                // El evento en memoria puede ser de otra base: el paso 2 pudo
+                // cambiar los datos de conexión.
+                \App\Nucleo\App::olvidarEvento();
+                $activo = \App\Nucleo\App::eventoActivo();
+                if ($activo !== null) {
+                    $eventoId = (int) $activo['id'];
+                    $estado['evento_id'] = $eventoId;
+                }
+            }
             if ($eventoId === 0) {
                 $eventoId = Evento::crear([
                     'nombre'       => $nombreEvento,

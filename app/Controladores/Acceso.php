@@ -60,15 +60,20 @@ final class Acceso
                 $errores['correo'] = 'Escribe un correo válido, por ejemplo nombre@entidad.gov.co';
             } else {
                 Limite::exigir('envio_codigo', $correo);
+                // Se cuenta siempre, exista o no la persona. Contando solo los
+                // correos no registrados pasaban dos cosas malas a la vez: el
+                // bloqueo llegaba únicamente a los buzones que NO están
+                // inscritos —o sea que el propio límite decía quién lo está— y
+                // a los que sí se les podía pedir un código sin ningún tope,
+                // que es una forma cómoda de llenarle el buzón a alguien.
+                Limite::registrar('envio_codigo', $correo);
 
                 $persona = $evento ? Persona::porCorreo((int) $evento['id'], $correo) : null;
 
                 if ($persona) {
+                    // No se revela si el correo existe: quien no esté registrado
+                    // ve exactamente la misma pantalla.
                     $this->enviarCodigo($persona, $evento, $destino);
-                } else {
-                    // No se revela si el correo existe. Quien no esté registrado
-                    // recibe el mismo mensaje, y se le ofrece el preregistro.
-                    Limite::registrarFallo('envio_codigo', $correo);
                 }
 
                 Sesion::limpiar();

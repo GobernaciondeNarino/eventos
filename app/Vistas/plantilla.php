@@ -70,7 +70,7 @@ $nombreEvento = $evento['nombre'] ?? 'Plataforma de Eventos TIC';
 <?php endif; ?>
 
 <script src="<?= e(recurso('assets/js/app.js')) ?>" defer></script>
-<?php foreach (($guiones ?? []) as $guion): ?>
+<?php foreach (App\Nucleo\Respuesta::guionesDeclarados() as $guion): ?>
 <script src="<?= e(recurso('assets/js/' . $guion)) ?>" defer></script>
 <?php endforeach; ?>
 </body>

@@ -126,7 +126,17 @@ final class Usuario
             return false;
         }
         // Si el algoritmo cambió de parámetros, se rehashea al vuelo.
-        if (password_needs_rehash((string) $usuario['clave_hash'], PASSWORD_DEFAULT)) {
+        //
+        // Se compara contra el algoritmo que se usa de verdad. Comparando
+        // contra PASSWORD_DEFAULT —que es bcrypt— un hash Argon2id parecía
+        // desactualizado siempre, y cada inicio de sesión reescribía la
+        // contraseña en la base sin ninguna necesidad.
+        $algoritmo = defined('PASSWORD_ARGON2ID') ? PASSWORD_ARGON2ID : PASSWORD_BCRYPT;
+        $opciones = defined('PASSWORD_ARGON2ID')
+            ? ['memory_cost' => 65536, 'time_cost' => 4, 'threads' => 2]
+            : ['cost' => 12];
+
+        if (password_needs_rehash((string) $usuario['clave_hash'], $algoritmo, $opciones)) {
             Bd::ejecutar('UPDATE {usuario} SET clave_hash = ? WHERE id = ?', [
                 Cripto::hashClave($clave),
                 $usuario['id'],

@@ -70,13 +70,19 @@ final class Enrutador
             },
             $patron
         );
-        return '#^' . $regex . '$#u';
+        // \z y no $: en PCRE, $ también casa justo antes de un salto de línea
+        // final, así que «/carnet\n» entraba por la misma puerta que «/carnet».
+        return '#^' . $regex . '\z#u';
     }
 
     public function despachar(Peticion $peticion): never
     {
         $ruta = $peticion->ruta();
-        $metodo = $peticion->metodo();
+
+        // HEAD es GET sin cuerpo: lo usan los monitores de disponibilidad y
+        // algunos proxies antes de cachear. Tratarlo como método desconocido
+        // hacía que la portada respondiera 405.
+        $metodo = $peticion->metodo() === 'HEAD' ? 'GET' : $peticion->metodo();
         $rutaCoincide = false;
 
         foreach ($this->rutas as $r) {

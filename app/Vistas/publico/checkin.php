@@ -11,7 +11,7 @@
  */
 defined('EVENTOS_TIC') || exit;
 
-$guiones = ['escaner.js'];
+guiones('escaner.js');
 ?>
 <div class="view view--medium split" style="align-items:start">
 

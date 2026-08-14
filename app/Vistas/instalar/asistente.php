@@ -29,7 +29,7 @@ $pintarChecks = static function (array $items): void {
             . '</div>';
     }
 };
-$guiones = ['instalador.js'];
+guiones('instalador.js');
 ?>
 <main class="installer" id="contenido">
   <div class="installer__inner">
@@ -200,8 +200,9 @@ $guiones = ['instalador.js'];
         </div>
 
         <div class="row row--between">
-          <button class="btn" type="submit" name="accion" value="atras" formnovalidate>Atrás</button>
           <button class="btn btn--primary" type="submit">Continuar</button>
+          <button class="btn" type="submit" name="accion" value="atras"
+                  formnovalidate style="order:-1">Atrás</button>
         </div>
         <input type="hidden" name="a" value="1">
       </form>
@@ -299,8 +300,9 @@ $guiones = ['instalador.js'];
         </details>
 
         <div class="row row--between">
-          <button class="btn" type="submit" name="accion" value="atras" formnovalidate>Atrás</button>
           <button class="btn btn--primary" type="submit">Aplicar y continuar</button>
+          <button class="btn" type="submit" name="accion" value="atras"
+                  formnovalidate style="order:-1">Atrás</button>
         </div>
         <input type="hidden" name="a" value="2">
       </form>
@@ -384,8 +386,9 @@ $guiones = ['instalador.js'];
         </div>
 
         <div class="row row--between">
-          <button class="btn" type="submit" name="accion" value="atras" formnovalidate>Atrás</button>
           <button class="btn btn--primary" type="submit">Continuar</button>
+          <button class="btn" type="submit" name="accion" value="atras"
+                  formnovalidate style="order:-1">Atrás</button>
         </div>
         <input type="hidden" name="a" value="3">
       </form>
@@ -473,8 +476,9 @@ $guiones = ['instalador.js'];
         </div>
 
         <div class="row row--between">
-          <button class="btn" type="submit" name="accion" value="atras" formnovalidate>Atrás</button>
           <button class="btn btn--primary" type="submit">Instalar</button>
+          <button class="btn" type="submit" name="accion" value="atras"
+                  formnovalidate style="order:-1">Atrás</button>
         </div>
         <input type="hidden" name="a" value="4">
       </form>

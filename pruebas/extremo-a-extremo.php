@@ -89,6 +89,11 @@ final class Cliente
         return $this->pedir('GET', $ruta, null, $seguirRedireccion);
     }
 
+    public function cabeza(string $ruta): string
+    {
+        return $this->pedir('HEAD', $ruta, null, false);
+    }
+
     public function post(string $ruta, array $datos, bool $seguirRedireccion = true): string
     {
         // El testigo se toma de la cookie, igual que hace el navegador.
@@ -405,6 +410,12 @@ titulo('Instalación incompleta');
 // Se borran también las dependencias a mano: con FOREIGN_KEY_CHECKS apagado
 // las cascadas no se disparan y quedarían jornadas huérfanas de un evento que
 // ya no existe, que es un estado que la aplicación nunca produce.
+// Algo ajustado a mano que el asistente no pregunta: reparar no puede
+// llevárselo por delante.
+$configuracion = require $RAIZ . '/config/config.php';
+file_put_contents($RAIZ . '/config/config.php', "<?php\n\nreturn "
+    . var_export(['proxies_confiables' => ['10.9.9.9']] + $configuracion, true) . ";\n");
+
 $borrar = static function (array $tablas) use ($pdo, $BD): void {
     $pdo->exec('SET FOREIGN_KEY_CHECKS = 0');
     foreach ($tablas as $tabla) {
@@ -499,6 +510,8 @@ $html = $perdido->post('/instalar', [
 comprobar('la reparación termina', str_contains($html, 'Instalación terminada'));
 comprobar('y dice dónde quedó guardada la cuenta',
     str_contains($html, $BD['prefijo'] . 'usuario'));
+comprobar('y respeta lo que estaba ajustado a mano en la configuración',
+    (require $RAIZ . '/config/config.php')['proxies_confiables'] === ['10.9.9.9']);
 
 $html = $perdido->get('/instalar');
 comprobar('el asistente se cierra otra vez solo', str_contains($html, 'ya está instalada'));
@@ -871,6 +884,17 @@ foreach ([
 $c = new Cliente($BASE);
 $c->get('/');
 $cabeceras = implode("\n", $c->cabeceras);
+// HEAD lo usan los monitores de disponibilidad; respondía 405 en todo el sitio.
+$cabeza = new Cliente($BASE);
+$cabeza->cabeza('/');
+comprobar('HEAD sobre la portada responde 200', $cabeza->codigo === 200, (string) $cabeza->codigo);
+
+// En PCRE, «$» casa también antes de un salto de línea final.
+$colado = new Cliente($BASE);
+$colado->get("/agenda\n", false);
+comprobar('una ruta con un salto de línea al final no cuela',
+    $colado->codigo === 404, (string) $colado->codigo);
+
 comprobar('envía Content-Security-Policy', str_contains($cabeceras, 'Content-Security-Policy'));
 comprobar('envía X-Frame-Options', str_contains($cabeceras, 'X-Frame-Options: DENY'));
 comprobar('envía X-Content-Type-Options', str_contains($cabeceras, 'nosniff'));
@@ -908,6 +932,33 @@ comprobar('la bitácora no guarda contraseñas', $conClave === 0);
 $sesiones = $pdo->query("SELECT id FROM {$BD['prefijo']}sesion LIMIT 1")->fetchColumn();
 comprobar('la cookie de sesión no es el identificador guardado',
     $sesiones && $maria->cookie('evtic_asis') !== '' && $sesiones !== $maria->cookie('evtic_asis'));
+
+/* =========================================================================
+   9b · Cada pantalla carga su JavaScript
+   -------------------------------------------------------------------------
+   Las vistas declaraban sus guiones en una variable que la plantilla no podía
+   ver, porque se pintan por separado y no comparten ámbito. Ninguno llegaba al
+   navegador: ni el escáner de la puerta, ni el selector de municipios, ni la
+   vista previa de la identidad, ni el «Probar conexión» del instalador. Todo
+   estaba en el HTML y nada se cargaba.
+   ========================================================================= */
+titulo('JavaScript de cada pantalla');
+
+foreach ([
+    ['/preregistro',      'preregistro.js', $maria],
+    ['/carnet',           'carnet.js',      $maria],
+    ['/checkin',          'escaner.js',     $maria],
+    ['/admin/escaner',    'escaner.js',     $admin],
+    ['/admin/identidad',  'identidad.js',   $admin],
+] as [$ruta, $guion, $cliente]) {
+    $html = $cliente->get($ruta);
+    comprobar("$ruta carga $guion", str_contains($html, 'assets/js/' . $guion));
+}
+
+$html = $maria->get('/');
+comprobar('y una pantalla sin guion propio no arrastra ninguno',
+    str_contains($html, 'assets/js/app.js')
+    && !preg_match('#assets/js/(escaner|identidad|preregistro)\.js#', $html));
 
 /* =========================================================================
    10 · Cierre de sesión

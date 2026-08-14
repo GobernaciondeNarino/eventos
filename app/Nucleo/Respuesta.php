@@ -41,10 +41,41 @@ final class Respuesta
         return self::capturar($vista, $datos);
     }
 
+    /** @var array<int, string> Guiones propios de la pantalla que se está pintando. */
+    private static array $guiones = [];
+
+    /**
+     * Declara el JavaScript propio de una pantalla.
+     *
+     * Lo llaman las vistas. Antes cada una hacía «$guiones = ['escaner.js']» y
+     * la plantilla leía esa variable, pero la vista y la plantilla se pintan en
+     * llamadas distintas y con su propio ámbito, así que la plantilla nunca la
+     * veía: ni un solo guion de pantalla llegaba al navegador. El escáner de la
+     * puerta, el selector de municipios del preregistro y la vista previa de la
+     * identidad estaban en el HTML y no se cargaban.
+     */
+    public static function guiones(string ...$archivos): void
+    {
+        foreach ($archivos as $archivo) {
+            if (!in_array($archivo, self::$guiones, true)) {
+                self::$guiones[] = $archivo;
+            }
+        }
+    }
+
+    /** @return array<int, string> */
+    public static function guionesDeclarados(): array
+    {
+        return self::$guiones;
+    }
+
     private static function render(string $vista, array $datos): string
     {
+        // La vista primero: es ahí donde se declaran sus guiones, y la
+        // plantilla tiene que pintarse después para poder incluirlos.
         $contenido = self::capturar($vista, $datos);
         $datos['contenido'] = $contenido;
+        $datos['guiones'] = self::$guiones;
         return self::capturar('plantilla', $datos);
     }
 

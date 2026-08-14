@@ -174,9 +174,18 @@ final class Peticion
         );
     }
 
+    /**
+     * El navegador que dice ser.
+     *
+     * Se recorta por caracteres y no por bytes. Con substr(), un User-Agent de
+     * más de 255 bytes podía quedar partido por la mitad de un carácter
+     * multibyte; ese byte suelto no es UTF-8 válido y, con el modo estricto de
+     * MySQL, el INSERT de la sesión falla y el acceso responde un 500.
+     */
     public function agente(): string
     {
-        return substr((string) ($_SERVER['HTTP_USER_AGENT'] ?? ''), 0, 255);
+        $agente = (string) ($_SERVER['HTTP_USER_AGENT'] ?? '');
+        return mb_substr($agente, 0, 255, 'UTF-8');
     }
 
     /** ¿La petición llegó por HTTPS? Contempla el proxy de Plesk. */
