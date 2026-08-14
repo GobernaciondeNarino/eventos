@@ -1198,6 +1198,16 @@ $vuelve->get('/admin', false);
 comprobar('y el panel ya no rebota a la verificación', $vuelve->codigo === 200,
     $vuelve->codigo . ' → ' . $vuelve->cabecera('Location'));
 
+// Se deja la cuenta como estaba. Los otros guiones —pantallas.js, entre ellos—
+// entran con contraseña y se quedarían atascados en la verificación revisando
+// ocho veces la misma pantalla.
+$pdo->exec("UPDATE {$BD['prefijo']}usuario
+               SET totp_secreto = NULL, totp_confirmado = 0, totp_ultimo = 0
+             WHERE correo = 'aerazo@narino.gov.co'");
+comprobar('el guion deja la cuenta como la encontró',
+    (int) $pdo->query("SELECT totp_confirmado FROM {$BD['prefijo']}usuario
+                        WHERE correo = 'aerazo@narino.gov.co'")->fetchColumn() === 0);
+
 /* =========================================================================
    Resultado
    ========================================================================= */

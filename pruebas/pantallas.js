@@ -122,8 +122,18 @@ async function revisar(page, ruta, etiqueta) {
   await adm.click('button[type=submit]');
   await adm.waitForLoadState('networkidle');
 
-  const entro = adm.url().includes('/admin') && !adm.url().includes('entrar');
+  // Llegar a una URL bajo /admin no basta: /admin/verificar y /admin/activar-2fa
+  // también lo son, y quedándose ahí este guion revisaba ocho veces la misma
+  // pantalla creyendo que revisaba el backoffice entero. Se comprueba que el
+  // panel esté de verdad delante.
+  await adm.goto(BASE + '/admin', { waitUntil: 'networkidle' });
+  const entro = /\/admin\/?$/.test(new URL(adm.url()).pathname);
   console.log((entro ? '·' : '!') + ' el equipo entró: ' + (entro ? 'sí' : 'NO — ' + adm.url()) + '\n');
+  if (!entro) {
+    console.log('  El acceso no llegó al panel. Si pide el segundo factor, quítalo con:');
+    console.log('    php herramientas/cuenta.php sin-2fa --correo=' + ADMIN.correo + '\n');
+    process.exitCode = 1;
+  }
   if (!entro) fallos++;
 
   for (const ruta of ADMIN_RUTAS) await revisar(adm, ruta, 'admin');
