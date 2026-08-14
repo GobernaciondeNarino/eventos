@@ -167,9 +167,24 @@ final class App
         // La cámara del escáner y el resto de la aplicación son del mismo
         // origen; no hay CDN. La excepción de estilos en línea está explicada
         // en docs/SEGURIDAD.md.
-        header("Content-Security-Policy: default-src 'self'; script-src 'self'; "
+        //
+        // Cloudflare, si tiene Web Analytics encendido, inyecta su beacon en el
+        // HTML de salida. La política lo bloquea y la consola del navegador se
+        // queja: no rompe nada —la aplicación no depende de ese script— pero
+        // asusta a quien la abre. Se puede permitir a propósito desde la
+        // configuración; por omisión no, porque una política más estrecha es
+        // mejor que una cómoda y esto se apaga también desde el panel de
+        // Cloudflare. Ver docs/SEGURIDAD.md.
+        $scripts = "'self'";
+        $conexiones = "'self'";
+        if (Config::obtener('permitir_cloudflare_analytics', false)) {
+            $scripts .= ' https://static.cloudflareinsights.com';
+            $conexiones .= ' https://cloudflareinsights.com';
+        }
+
+        header("Content-Security-Policy: default-src 'self'; script-src {$scripts}; "
             . "style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; "
-            . "connect-src 'self'; media-src 'self' blob:; form-action 'self'; "
+            . "connect-src {$conexiones}; media-src 'self' blob:; form-action 'self'; "
             . "frame-ancestors 'none'; base-uri 'none'; object-src 'none'");
 
         if ($peticion->esSegura()) {
@@ -196,11 +211,18 @@ final class App
 
         set_exception_handler(static function (\Throwable $e): void {
             Registro::excepcion($e);
-            if (Config::obtener('depurar', false)) {
-                Respuesta::error(500, 'Error interno',
-                    get_class($e) . ': ' . $e->getMessage() . ' — '
-                    . basename($e->getFile()) . ':' . $e->getLine());
+
+            $detalle = self::detalleDelFallo($e);
+            if ($detalle !== []) {
+                Respuesta::error(500, 'La instalación se interrumpió',
+                    'Algo falló antes de terminar de instalar la plataforma. Abajo está la causa exacta.',
+                    [
+                        ['texto' => 'Volver al asistente', 'url' => Url::a('/instalar'), 'principal' => true],
+                        ['texto' => 'Ver el diagnóstico', 'url' => Url::a('/instalar/diagnostico')],
+                    ],
+                    $detalle);
             }
+
             Respuesta::error(500, 'Algo salió mal',
                 'Se registró el problema para revisarlo. Vuelve a intentarlo en unos minutos.');
         });
@@ -220,6 +242,58 @@ final class App
                 ]);
             }
         });
+    }
+
+    /**
+     * Qué se puede contar en pantalla sobre un fallo.
+     *
+     * Devuelve líneas mientras la instalación no ha terminado —o con «depurar»
+     * encendido a mano—, y un array vacío el resto del tiempo.
+     *
+     * Que se vea antes de instalar no es una fuga y sí es imprescindible.
+     * Todavía no existe la llave de cifrado, ni una sola cuenta, ni un dato de
+     * ninguna persona: no hay nada que filtrar. Lo que sí había era una
+     * pantalla que decía «se registró el problema para revisarlo» a alguien que
+     * no tiene consola, no puede leer almacen/registro/ y no tiene forma
+     * humana de averiguar qué pasó. Esa pantalla dejaba la instalación muerta
+     * sin ninguna pista, que es exactamente lo que ocurrió en producción.
+     *
+     * En cuanto config/config.php existe con la marca de instalado, esto se
+     * apaga solo y se vuelve al mensaje genérico de siempre.
+     *
+     * @return array<int, string>
+     */
+    private static function detalleDelFallo(\Throwable $e): array
+    {
+        $depurando = (bool) Config::obtener('depurar', false);
+        if (!$depurando && Config::instalado()) {
+            return [];
+        }
+
+        $lineas = [];
+        for ($actual = $e, $nivel = 0; $actual !== null && $nivel < 3; $actual = $actual->getPrevious(), $nivel++) {
+            $lineas[] = ($nivel === 0 ? '' : 'Causado por: ')
+                . get_class($actual) . ': ' . $actual->getMessage();
+            $lineas[] = '  en ' . self::rutaCorta($actual->getFile()) . ':' . $actual->getLine();
+        }
+
+        // Las primeras llamadas bastan para situar el fallo, y la traza entera
+        // en una página de error solo es ruido.
+        $traza = array_slice(explode("\n", $e->getTraceAsString()), 0, 8);
+        foreach ($traza as $marco) {
+            $lineas[] = '  ' . self::rutaCorta(trim($marco));
+        }
+
+        $lineas[] = '';
+        $lineas[] = 'PHP ' . PHP_VERSION . ' · ' . date('Y-m-d H:i:s');
+
+        return $lineas;
+    }
+
+    /** La ruta del servidor no le dice nada a nadie y sí revela la cuenta. */
+    private static function rutaCorta(string $texto): string
+    {
+        return str_replace(RAIZ . '/', '', str_replace(RAIZ, '…', $texto));
     }
 
     /* =====================================================================

@@ -544,7 +544,7 @@ final class Instalador
 
     private function rutaConexion(): string
     {
-        return RAIZ . '/config/instalacion.php';
+        return Instalacion::rutaConexion();
     }
 
     private function guardarConexion(array $parametros): bool
@@ -585,21 +585,20 @@ final class Instalador
 
     private function leerConexion(): ?array
     {
-        $ruta = $this->rutaConexion();
-        if (!is_file($ruta)) {
-            return null;
-        }
-        if (function_exists('opcache_invalidate')) {
-            @opcache_invalidate($ruta, true);
-        }
-        $datos = require $ruta;
-        return (is_array($datos) && !empty($datos['nombre'])) ? $datos : null;
+        return Instalacion::credencialesEnCurso();
     }
 
     private function olvidarConexion(): void
     {
         @unlink($this->rutaConexion());
         clearstatcache(true, $this->rutaConexion());
+
+        // config/.llave-asistente se queda donde está a propósito. Firma el
+        // estado del proceso, y la pantalla de resumen —que es la petición
+        // siguiente a esta— tiene que poder verificarlo. Borrarla aquí mandaba
+        // al recién instalado a la pantalla de acceso sin haberle enseñado
+        // nunca el resumen con su correo, su evento y lo que faltaba por hacer.
+        // No es una credencial de nada más y el asistente ya está cerrado.
     }
 
     /** Deja la conexión lista para el resto de la petición y de las siguientes. */
@@ -911,8 +910,40 @@ final class Instalador
 
     private function llaveEstado(): string
     {
-        // Estable durante la instalación y distinta en cada servidor.
-        return hash('sha256', RAIZ . '|' . PHP_VERSION . '|instalador');
+        // Un secreto de verdad, guardado aparte y generado una sola vez.
+        //
+        // Antes la llave era hash(RAIZ . PHP_VERSION), que no es secreta: la
+        // ruta de instalación en Plesk es previsible y la versión de PHP la
+        // publica el propio servidor. Con las dos, cualquiera podía firmar una
+        // cookie de estado válida durante la ventana en que el asistente está
+        // abierto y colar su propio correo como cuenta administradora.
+        //
+        // Y además cambiaba sola: bastaba una actualización menor de PHP a
+        // mitad de instalación para invalidar el estado y devolver al paso 1
+        // sin explicar por qué.
+        static $llave = null;
+        if ($llave !== null) {
+            return $llave;
+        }
+
+        $ruta = RAIZ . '/config/.llave-asistente';
+        if (is_readable($ruta)) {
+            $guardada = (string) @file_get_contents($ruta);
+            if (strlen($guardada) >= 32) {
+                return $llave = $guardada;
+            }
+        }
+
+        $nueva = bin2hex(random_bytes(32));
+        if (@file_put_contents($ruta, $nueva, LOCK_EX) !== false) {
+            @chmod($ruta, 0600);
+            return $llave = $nueva;
+        }
+
+        // config/ sin permiso de escritura. El paso 1 ya lo señala como
+        // bloqueante; mientras tanto vale una llave derivada, que es lo que
+        // había antes, para no dejar el asistente inservible del todo.
+        return $llave = hash('sha256', RAIZ . '|instalador');
     }
 
     private function leerEstado(): array
@@ -940,7 +971,11 @@ final class Instalador
 
         $peticion = \App\Nucleo\App::peticion();
         setcookie(self::COOKIE, $valor, [
-            'expires'  => time() + 3600,
+            // Doce horas y no una. Instalar rara vez es un acto seguido: se
+            // empieza, hay que pedir los datos de la base al área de sistemas y
+            // se vuelve por la tarde. Con una hora, el asistente descartaba el
+            // estado en silencio y devolvía al paso 1 sin decir nada.
+            'expires'  => time() + 43200,
             'path'     => $peticion->base() === '' ? '/' : $peticion->base() . '/',
             'secure'   => $peticion->esSegura(),
             'httponly' => true,

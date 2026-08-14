@@ -44,16 +44,24 @@ final class Registro
         ]);
     }
 
-    private static function escribir(string $nivel, string $mensaje, array $contexto): void
+    /**
+     * ¿Se pudo escribir el último apunte?
+     *
+     * Lo pregunta el diagnóstico. Un registro que no se puede escribir es
+     * exactamente el peor momento para enterarse por las malas: es cuando algo
+     * ya falló y no queda rastro de qué.
+     */
+    public static function escribible(): bool
     {
         $directorio = self::directorio();
         if (!is_dir($directorio)) {
             @mkdir($directorio, 0750, true);
         }
+        return is_dir($directorio) && is_writable($directorio);
+    }
 
-        $archivo = $directorio . '/' . date('Y-m-d') . '.log.php';
-        $nuevo = !is_file($archivo);
-
+    private static function escribir(string $nivel, string $mensaje, array $contexto): void
+    {
         $linea = sprintf(
             "[%s] %s: %s%s\n",
             date('Y-m-d H:i:s'),
@@ -62,10 +70,31 @@ final class Registro
             $contexto ? ' ' . json_encode($contexto, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) : ''
         );
 
-        @file_put_contents($archivo, ($nuevo ? self::GUARDA : '') . $linea, FILE_APPEND | LOCK_EX);
-        if ($nuevo) {
-            @chmod($archivo, 0640);
+        $directorio = self::directorio();
+        if (!is_dir($directorio)) {
+            @mkdir($directorio, 0750, true);
         }
+
+        $archivo = $directorio . '/' . date('Y-m-d') . '.log.php';
+        $nuevo = !is_file($archivo);
+
+        $escrito = @file_put_contents($archivo, ($nuevo ? self::GUARDA : '') . $linea, FILE_APPEND | LOCK_EX);
+        if ($escrito !== false) {
+            if ($nuevo) {
+                @chmod($archivo, 0640);
+            }
+            return;
+        }
+
+        // No se pudo escribir en almacen/registro/. Pasa en Plesk cuando la
+        // carpeta llega del repositorio con el propietario equivocado, y hasta
+        // ahora el fallo se perdía en silencio: la pantalla decía «se registró
+        // el problema para revisarlo» y no se había registrado nada, de modo
+        // que no quedaba absolutamente ningún rastro de la avería.
+        //
+        // El registro de PHP siempre está en algún sitio —en Plesk, en los
+        // registros del dominio—, así que al menos ahí queda.
+        @error_log('[eventos-tic] ' . rtrim($linea));
     }
 
     /** Borra los registros viejos. Los llama el mantenimiento periódico. */

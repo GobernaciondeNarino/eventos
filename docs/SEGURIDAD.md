@@ -299,6 +299,17 @@ La prueba de extremo a extremo lo verifica leyendo la cookie después de cada pa
 final: mirar únicamente el estado final daba por bueno un secreto que sí estuvo ahí
 durante tres pasos.
 
+**La firma de esa cookie es ahora un secreto de verdad.** Era
+`hash('sha256', RAIZ . PHP_VERSION . '|instalador')`, y ninguna de esas dos piezas es secreta:
+la ruta de instalación en Plesk es previsible —`/var/www/vhosts/<dominio>/httpdocs/…`— y la
+versión de PHP la publica el propio servidor. Con las dos, cualquiera podía firmar un estado
+válido durante la ventana en que el asistente está abierto y colar su propio correo como
+cuenta administradora del evento. Ahora la llave se genera con `random_bytes(32)` la primera
+vez y se guarda en `config/.llave-asistente` (permisos `0600`, fuera del repositorio, en una
+carpeta que el servidor no sirve). De paso desaparece un fallo silencioso: una actualización
+menor de PHP a mitad de instalación invalidaba el estado y devolvía al paso 1 sin explicar
+por qué.
+
 ### La instalación no puede dejar la plataforma sin puerta
 
 El paso final escribe la marca de «instalado» **al final**, cuando ya existen la cuenta
@@ -316,6 +327,35 @@ Que el acceso del equipo diga «todavía no hay ninguna cuenta» es deliberado y
 la regla de no revelar qué cuentas existen: no se está diciendo nada de una cuenta concreta,
 el estado ya es visible desde fuera, y sin decirlo no hay salida.
 
+### Mientras se instala, los errores se muestran; después, no
+
+La regla general es que un fallo nunca enseña su traza al visitante: revela rutas del
+servidor, nombres de tablas y a veces credenciales. Hay **una excepción acotada**: mientras
+`config/config.php` no exista con la marca de instalado, la página de error muestra la
+excepción, el archivo y la línea.
+
+El razonamiento, y por qué esto no es una fuga:
+
+- En ese momento no existe **nada** que filtrar. No hay llave de cifrado, ni una sola cuenta,
+  ni un dato de ninguna persona, ni tablas con contenido. La única credencial en juego es la
+  de la base de datos, y esa vive en `config/instalacion.php`, no en las trazas.
+- La ruta absoluta del servidor se recorta antes de imprimirla (`RAIZ` → `…`), así que no se
+  publica ni la cuenta del sistema ni la estructura de directorios.
+- La ventana es la instalación, que dura minutos y ocurre antes de que el sitio se anuncie.
+- **Y sin esto no había salida.** Quien instala en Plesk normalmente no tiene SSH y no puede
+  leer `almacen/registro/`. Una pantalla que dice «se registró el problema para revisarlo»
+  a alguien que no puede revisar nada deja la instalación muerta y sin ninguna pista. Es
+  exactamente lo que ocurrió en producción.
+
+En cuanto la instalación termina, la excepción vuelve a ser invisible sin tocar ninguna
+opción. `pruebas/instalacion.php` comprueba las dos mitades: que el detalle se ve antes de
+instalar y que **no** se ve después.
+
+Como complemento, `App\Nucleo\Registro` ya no pierde apuntes en silencio: si no puede escribir
+en `almacen/registro/` —permisos mal puestos al desplegar, algo habitual—, cae al registro de
+errores de PHP, que en Plesk queda en los registros del dominio. Antes, ese caso dejaba la
+avería sin ningún rastro en ninguna parte.
+
 ### Cabeceras
 
 Se envían desde PHP **y** desde `.htaccess`. En Plesk es común que `mod_headers` no esté
@@ -325,6 +365,14 @@ depender de eso.
 `Content-Security-Policy` sin orígenes externos, `X-Frame-Options: DENY`, `nosniff`,
 `Referrer-Policy`, `Permissions-Policy` (solo cámara, y del propio origen), y HSTS cuando la
 conexión es segura.
+
+**Cloudflare y su beacon.** Con Web Analytics encendido, Cloudflare inyecta
+`static.cloudflareinsights.com/beacon.min.js` en el HTML de salida. La política lo bloquea y
+la consola del navegador lo denuncia. Se deja así a propósito: la aplicación no necesita ese
+script, y ensanchar `script-src` para todo el mundo por una analítica opcional es peor
+negocio que apagar la analítica. Quien la quiera puede permitirlo explícitamente con
+`'permitir_cloudflare_analytics' => true` en `config/config.php`, que añade ese origen a
+`script-src` y `https://cloudflareinsights.com` a `connect-src`, y nada más.
 
 ---
 
@@ -415,7 +463,8 @@ conviene decirlo con claridad en la pantalla de privacidad.
 ## 6. Verificación
 
 ```bash
-php pruebas/extremo-a-extremo.php      # 188 comprobaciones, 27 de seguridad
+php pruebas/extremo-a-extremo.php      # 189 comprobaciones, 27 de seguridad
+php pruebas/instalacion.php            # el asistente, y qué se ve cuando falla
 php pruebas/totp.php                   # segundo factor contra el RFC 6238
 php pruebas/correo.php                 # formato MIME e inyección de cabeceras
 php pruebas/svg-saneado.php            # logos SVG con código dentro
@@ -449,6 +498,8 @@ Lo que comprueban las de seguridad, concretamente:
 - La del administrador no viaja en claro entre pasos: viaja su hash.
 - La contraseña del administrador queda en hash en la tabla, no en claro.
 - El modo reparación no ofrece borrar tablas, y no borra datos aunque se envíe a mano.
+- Antes de instalar, un fallo enseña su causa; después de instalar, no enseña nada.
+- El diagnóstico cuenta las tablas sin filtrar la contraseña de la base de datos.
 
 ---
 

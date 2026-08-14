@@ -137,7 +137,15 @@ archivo `config/permitir-reinstalar`.
 
 ### 3.5.1 Si el asistente no llega a terminar
 
-Dos salidas, y conviene conocerlas antes de necesitarlas.
+Tres salidas, y conviene conocerlas antes de necesitarlas.
+
+**Leer el error en la propia pantalla.** Mientras la instalación no haya terminado, un fallo
+no se queda en «algo salió mal»: la página de error muestra la excepción, el archivo y la
+línea. Es a propósito. En ese momento no hay todavía ni cuentas, ni datos de personas, ni
+llave de cifrado —no hay nada que filtrar—, y quien instala normalmente no tiene consola con
+la que leer `almacen/registro/`. **En cuanto `config/config.php` existe con la marca de
+instalado, ese detalle deja de mostrarse solo** y se vuelve al mensaje genérico. Para volver a
+verlo en un sitio ya instalado hay que encender `'depurar' => true` a mano.
 
 **Ver qué falta:** <https://tic.narino.gov.co/cumbreAI/instalar/diagnostico>
 
@@ -146,6 +154,10 @@ eventos existen, y los últimos errores registrados— sin mostrar ninguna crede
 la plataforma no funcione es una página pública, igual que el propio asistente; en cuanto
 funciona, exige sesión de administrador. Trae un bloque de texto listo para copiar y pegar en
 un correo.
+
+Cuando la instalación se cortó a mitad, mira la base de datos con los datos de
+`config/instalacion.php`, así que **cuenta las tablas de verdad aunque `config/config.php`
+todavía no exista**.
 
 **Instalar sin navegador:** la instalación completa cabe en un solo comando.
 
@@ -160,6 +172,22 @@ php herramientas/instalar.php \
 Usa las mismas clases que el asistente, así que no hay dos caminos que puedan divergir. Va
 contando cada paso y, si algo falla, dice exactamente qué. Es reejecutable: si se interrumpe,
 volver a lanzarlo no duplica nada.
+
+**Terminar una instalación cortada a mitad:** si las tablas ya están creadas pero `evt_usuario`
+está vacía —lo que deja un asistente interrumpido entre el paso 3 y el 5— no hace falta
+repetir nada. `--reparar` hace solo lo que falte:
+
+```bash
+php herramientas/instalar.php --reparar \
+    --admin-correo=tu@narino.gov.co --admin-nombre="Nombre Apellido" \
+    --evento="Cumbre Tecnológica CIOS Nariño" --inicio=2026-09-01 --dias=3 \
+    --url=https://tic.narino.gov.co/cumbreAI
+```
+
+Toma los datos de conexión de `config/config.php`, o de `config/instalacion.php` si el
+asistente llegó al paso 2, o de `--bd-*`. **Nunca toca las tablas ni borra datos**: crea la
+cuenta administradora si falta, el evento si falta, escribe `config/config.php` y borra
+`config/instalacion.php`. Si no le pasas `--admin-clave`, genera una y la muestra una sola vez.
 
 En Plesk sin SSH: **Sitios web y dominios → Tareas programadas → Ejecutar un script PHP**, con
 la ruta `cumbreAI/herramientas/instalar.php` y los argumentos en su campo. Ejecutar una vez y
@@ -211,6 +239,41 @@ puede reemplazar por otra, que es lo que hacen el asistente y la herramienta de 
 **Los asistentes al evento no están en esa tabla.** `evt_usuario` es solo el equipo
 organizador. Quien se preregistra va a `evt_persona` y entra por correo con un código de un
 solo uso, sin contraseña.
+
+---
+
+## 3.8 Qué tablas mirar para saber si la instalación grabó sus datos
+
+De las dieciséis tablas, el asistente solo escribe en **seis**. Las otras diez se crean vacías
+y se van llenando con el uso. Si acabas de instalar y quieres comprobar que todo quedó
+guardado, mira estas seis y en este orden:
+
+| Tabla | Qué debe haber | Si está vacía |
+|---|---|---|
+| **`evt_usuario`** | **1 fila**: tu cuenta, con `rol = 'administrador'` y `estado = 'activo'` | **Es la que importa.** Sin ella no se puede entrar al panel y todo el sitio redirige al asistente. La instalación se cortó en el paso 4 o 5. |
+| **`evt_evento`** | **1 fila**, con `activo = 1` | La parte pública responde 503. Se crea desde el panel, en *Eventos*. |
+| **`evt_evento_dia`** | **una fila por jornada** (3 días → 3 filas), cada una con su token de QR | Nadie puede registrar su ingreso. Se regeneran desde el panel. |
+| **`evt_evento_tema`** | **1 fila**: colores, tipografía y logo del evento | El evento se ve con el tema por omisión. No es grave. |
+| **`evt_migracion`** | al menos **1 fila**, con la versión del esquema (`1.1.0`) | Las actualizaciones futuras no sabrán de dónde parten. |
+| **`evt_bitacora`** | al menos **1 fila** con `accion = 'instalacion'` | Solo se pierde el rastro de cuándo se instaló. |
+
+Una consulta que lo dice todo de una vez (cambia `evt_` si usaste otro prefijo):
+
+```sql
+SELECT 'evt_usuario' AS tabla, COUNT(*) AS filas FROM evt_usuario
+UNION ALL SELECT 'evt_evento',       COUNT(*) FROM evt_evento
+UNION ALL SELECT 'evt_evento_dia',   COUNT(*) FROM evt_evento_dia
+UNION ALL SELECT 'evt_evento_tema',  COUNT(*) FROM evt_evento_tema
+UNION ALL SELECT 'evt_migracion',    COUNT(*) FROM evt_migracion
+UNION ALL SELECT 'evt_bitacora',     COUNT(*) FROM evt_bitacora;
+```
+
+Las diez restantes —`evt_persona`, `evt_inscripcion`, `evt_asistencia`, `evt_contacto`,
+`evt_sesion`, `evt_codigo_acceso`, `evt_intento`, `evt_expositor`, `evt_propuesta`,
+`evt_archivo`— **tienen que estar vacías recién instalado**. Que lo estén es lo correcto.
+
+No hace falta entrar a phpMyAdmin para esto: **`/cumbreAI/instalar/diagnostico`** cuenta lo
+mismo en una pantalla, y funciona aunque `config/config.php` todavía no exista.
 
 ---
 
@@ -304,10 +367,16 @@ cuál de los dos casos es, y si la base de datos ya tiene las tablas, la cuenta 
 - **Si la base ya está completa** y solo falta la marca, la plataforma se corrige sola en la
   siguiente visita. Si por lo que sea no puede escribir el archivo, `php
   herramientas/instalar.php --reparar` lo hace.
-- **Si falta la cuenta o el evento**, termina el asistente en `/cumbreAI/instalar`, o instala
-  de una vez desde la consola con `php herramientas/instalar.php` (ver 3.5.1).
+- **Si las tablas están pero `evt_usuario` está vacía**, el asistente se cortó entre el paso 3
+  y el 5. Vuelve a `/cumbreAI/instalar` y termina esos dos pasos —no se borra nada de lo ya
+  creado—, o hazlo de una vez con `php herramientas/instalar.php --reparar` (ver 3.5.1).
+- **Si falta solo el evento**, entra al panel y créalo en *Eventos*.
 - **Si no existe `config/config.php`**, la instalación nunca terminó. Lo mismo: asistente o
   consola.
+
+Si `/cumbreAI/instalar` responde **500**, la pantalla de error dice ahora la causa exacta
+—excepción, archivo y línea—, porque mientras la instalación no ha terminado no hay nada que
+proteger. Con eso se sabe qué arreglar sin necesidad de leer registros por SSH.
 
 ### No puedo entrar al panel
 
@@ -368,6 +437,26 @@ deja los mensajes en ese archivo para poder seguir probando.
 Es el comportamiento correcto: sin sesión, el código lleva al acceso y después continúa
 solo. Si pasa siempre, revisa que las cookies no estén bloqueadas y que el dominio del QR
 impreso coincida con el actual.
+
+**La consola del navegador se queja de `static.cloudflareinsights.com/beacon.min.js`.**
+No es un fallo de la plataforma y no rompe nada. Cloudflare, cuando tiene **Web Analytics**
+encendido, inyecta ese script en el HTML de salida; la política de contenidos de la
+aplicación solo permite scripts del propio sitio y el navegador lo bloquea. La página
+funciona igual: la aplicación no depende de ese script para nada. Dos formas de que el
+mensaje desaparezca:
+
+- **Recomendada:** apagarlo en Cloudflare (**Analytics & Logs → Web Analytics**, quitar el
+  hostname o desactivar *Automatic Setup*). Deja la política de contenidos como está, que es
+  lo más seguro.
+- Si la Gobernación quiere conservar esa analítica, permitirlo a propósito en
+  `config/config.php`:
+
+  ```php
+  'permitir_cloudflare_analytics' => true,
+  ```
+
+  Añade `https://static.cloudflareinsights.com` a `script-src` y
+  `https://cloudflareinsights.com` a `connect-src`, y nada más.
 
 ---
 

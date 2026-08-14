@@ -26,9 +26,21 @@
  *   --modo=actualizar    limpio | actualizar | anexar. Por defecto actualizar
  *                        si ya hay tablas, y limpio si la base está vacía.
  *   --sin-2fa            no exigir segundo factor al administrador
- *   --reparar            no instala: solo corrige la marca «instalado» cuando
- *                        la base ya está completa
+ *   --reparar            termina una instalación que se quedó a medias, sin
+ *                        tocar las tablas ni los datos que ya existan: crea la
+ *                        cuenta administradora si falta, el evento si falta, y
+ *                        escribe config/config.php. Toma los datos de conexión
+ *                        de config/config.php, o de config/instalacion.php si
+ *                        el asistente llegó al paso 2, o de --bd-*
  *   --forzar             permite reinstalar sobre una instalación terminada
+ *
+ * Para terminar una instalación interrumpida (las tablas creadas pero la tabla
+ * de usuarios vacía, que es lo que deja un asistente cortado a mitad):
+ *
+ *   php herramientas/instalar.php --reparar \
+ *       --admin-correo=alguien@narino.gov.co --admin-nombre="Nombre Apellido" \
+ *       --evento="Cumbre Tecnológica CIOS Nariño" --inicio=2026-09-01 --dias=3 \
+ *       --url=https://tic.narino.gov.co/cumbreAI
  */
 declare(strict_types=1);
 
@@ -114,35 +126,185 @@ $linea($color('Plataforma de Eventos TIC · instalación desde la consola', 'fue
 $linea();
 
 /* =========================================================================
-   Reparar: la base está lista y solo falta la marca
+   Reparar: terminar una instalación que se quedó a medias
+   -------------------------------------------------------------------------
+   Antes esto solo corregía la marca «instalado», y exigía que la base ya
+   estuviera completa. Justo el caso que más se da —las tablas creadas y la
+   tabla de usuarios vacía, que es lo que deja un asistente cortado entre el
+   paso 3 y el 5— caía en el «no hay nada que reparar» y remitía al asistente,
+   que es precisamente lo que no estaba funcionando.
+
+   Ahora hace lo que falte y nada más: nunca toca las tablas ni borra datos.
    ========================================================================= */
 
 if ($bandera('reparar')) {
-    if (!Config::existe()) {
-        $morir('No existe config/config.php, así que no hay nada que reparar. '
-            . 'Ejecuta la instalación completa (mira --ayuda).');
+    /* ---- De dónde salen los datos de conexión ------------------------- */
+
+    $origen = '';
+    if (Config::existe()) {
+        Config::cargar();
+        $origen = 'config/config.php';
+    } elseif (($enCurso = Instalacion::credencialesEnCurso()) !== null) {
+        // El asistente llegó al paso 2 y dejó ahí las credenciales.
+        Config::establecerEnMemoria([
+            'bd_host'    => $enCurso['host'],
+            'bd_puerto'  => (int) $enCurso['puerto'],
+            'bd_nombre'  => $enCurso['nombre'],
+            'bd_usuario' => $enCurso['usuario'],
+            'bd_clave'   => $enCurso['clave'],
+            'bd_prefijo' => $enCurso['prefijo'],
+        ]);
+        Bd::establecerPrefijo((string) $enCurso['prefijo']);
+        $origen = 'config/instalacion.php';
+    } elseif ($opcion('bd-nombre', '') !== '') {
+        Config::establecerEnMemoria([
+            'bd_host'    => (string) $opcion('bd-host', 'localhost'),
+            'bd_puerto'  => (int) ($opcion('bd-puerto', '3306') ?: 3306),
+            'bd_nombre'  => (string) $opcion('bd-nombre', ''),
+            'bd_usuario' => (string) $opcion('bd-usuario', ''),
+            'bd_clave'   => (string) $opcion('bd-clave', ''),
+            'bd_prefijo' => (string) $opcion('bd-prefijo', 'evt_'),
+        ]);
+        Bd::establecerPrefijo((string) $opcion('bd-prefijo', 'evt_'));
+        $origen = 'los argumentos --bd-*';
+    } else {
+        $morir('No hay de dónde sacar los datos de conexión: no existe config/config.php, '
+            . 'tampoco config/instalacion.php, y no se pasaron --bd-nombre y compañía. '
+            . 'Añádelos, o ejecuta la instalación completa (mira --ayuda).');
     }
-    Config::cargar();
+
+    $paso('Conectando con los datos de ' . $origen);
     try {
+        Bd::reiniciar();
         Bd::conectar();
     } catch (\Throwable $e) {
-        $morir('No se pudo conectar con los datos de config/config.php: ' . $e->getMessage());
+        $morir('No se pudo conectar: ' . $e->getMessage());
     }
+    $bien('Conexión correcta con ' . Config::obtener('bd_nombre'));
 
+    date_default_timezone_set((string) Config::obtener('zona_horaria', 'America/Bogota'));
+
+    /* ---- Qué falta ---------------------------------------------------- */
+
+    Instalacion::olvidar();
     $d = Instalacion::diagnostico();
-    if (!$d['completa']) {
-        $morir('La base de datos no está completa, así que reparar la marca no arreglaría nada. '
-            . 'Motivo: ' . $d['motivo']);
+    $linea('  ' . $d['tablas'] . ' de ' . $d['esperadas'] . ' tablas · '
+        . $d['administradores'] . ' administradores · ' . $d['eventos'] . ' eventos');
+
+    if ($d['faltantes']) {
+        $morir('Faltan ' . count($d['faltantes']) . ' tablas (' . implode(', ', array_slice($d['faltantes'], 0, 5))
+            . '). Reparar no crea tablas a propósito: eso es la instalación completa, con '
+            . '--modo=actualizar para conservar lo que ya haya.');
     }
 
-    if (!Config::escribir(['instalado' => true, 'version' => APP_VERSION] + Config::todo())) {
-        $morir('No se pudo escribir config/config.php. Revisa que la carpeta config/ tenga '
-            . 'permiso de escritura para el usuario del dominio; sin eso la marca no se corrige, '
-            . 'por más que todo lo demás esté bien.');
+    /* ---- La cuenta administradora ------------------------------------- */
+
+    $claveNueva = '';
+    if ($d['administradores'] === 0) {
+        $correo = mb_strtolower(trim((string) $opcion('admin-correo', '')));
+        $nombre = trim((string) $opcion('admin-nombre', ''));
+        $clave  = (string) $opcion('admin-clave', '');
+
+        if (!filter_var($correo, FILTER_VALIDATE_EMAIL) || mb_strlen($nombre) < 5) {
+            $morir('No hay ninguna cuenta administradora y falta con qué crearla. '
+                . 'Añade --admin-correo y --admin-nombre (y --admin-clave, o se genera una).');
+        }
+        if ($clave !== '' && mb_strlen($clave) < 12) {
+            $morir('--admin-clave debe tener 12 caracteres o más.');
+        }
+        if ($clave === '') {
+            $clave = $generarClave();
+            $claveNueva = $clave;
+        }
+
+        // La llave de cifrado tiene que existir antes de crear a nadie, y si ya
+        // había una no se toca: cambiarla vuelve ilegible todo lo guardado.
+        if ((string) Config::obtener('llave_cifrado', '') === '') {
+            Config::establecerEnMemoria(['llave_cifrado' => Cripto::generarLlave()] + Config::todo());
+        }
+
+        $paso('Creando la cuenta administradora');
+        try {
+            $usuarioId = Usuario::asegurarAdministrador($correo, $nombre, Cripto::hashClave($clave));
+        } catch (\Throwable $e) {
+            $morir('No se pudo crear la cuenta: ' . $e->getMessage());
+        }
+        $bien('Cuenta ' . $correo . ' lista, con el id ' . $usuarioId);
+    } else {
+        $bien('Ya hay ' . $d['administradores'] . ' cuenta(s) administradora(s); no se toca ninguna');
     }
-    $bien('Marca corregida. La plataforma ya no debería redirigir al asistente.');
+
+    /* ---- El evento ----------------------------------------------------- */
+
+    if ($d['eventos'] === 0) {
+        $nombreEvento = trim((string) $opcion('evento', ''));
+        $inicioEvento = (string) $opcion('inicio', date('Y-m-d'));
+        if (mb_strlen($nombreEvento) >= 3 && Evento::fechaValida($inicioEvento)) {
+            $paso('Creando el evento y sus jornadas');
+            try {
+                $eventoId = Evento::crear([
+                    'nombre'       => $nombreEvento,
+                    'dependencia'  => (string) $opcion('dependencia', 'Secretaría TIC, Innovación y Gobierno Abierto'),
+                    'sede'         => (string) $opcion('sede', ''),
+                    'fecha_inicio' => $inicioEvento,
+                    'jornadas'     => max(1, min(30, (int) ($opcion('dias', '3') ?: 3))),
+                    'estado'       => 'abierto',
+                    'activo'       => true,
+                    'preset'       => (string) $opcion('preset', 'tic-nocturno'),
+                    'tipografia'   => (string) $opcion('tipografia', 'tecnologica'),
+                ]);
+            } catch (\Throwable $e) {
+                $morir('No se pudo crear el evento: ' . $e->getMessage());
+            }
+            $bien('Evento «' . $nombreEvento . '» creado, id ' . $eventoId);
+        } else {
+            $linea($color('  ! No hay ningún evento y no se pasó --evento. El panel abrirá igual; '
+                . 'crea el evento desde Eventos, o vuelve a ejecutar esto con --evento e --inicio.', 'aviso'));
+        }
+    } else {
+        $bien('Ya hay ' . $d['eventos'] . ' evento(s); no se crea ninguno');
+    }
+
+    /* ---- Y por último la configuración -------------------------------- */
+
+    $paso('Escribiendo config/config.php');
+    $configuracion = ['instalado' => true, 'version' => APP_VERSION] + Config::todo() + [
+        'llave_cifrado'      => Cripto::generarLlave(),
+        'zona_horaria'       => 'America/Bogota',
+        'url_base'           => rtrim((string) $opcion('url', ''), '/'),
+        'correo_remitente'   => 'no-responder@localhost',
+        'correo_nombre'      => 'Eventos TIC',
+        'modo_correo'        => function_exists('mail') ? 'php' : 'registro',
+        'exigir_2fa_admin'   => !$bandera('sin-2fa'),
+        'proxies_confiables' => [],
+        'depurar'            => false,
+        'instalado_en'       => date('c'),
+    ];
+    if (!Config::escribir($configuracion)) {
+        $morir('No se pudo escribir config/config.php. Lo demás sí quedó hecho: dale permiso de '
+            . 'escritura a config/ y vuelve a ejecutar esto mismo, que no duplicará nada.');
+    }
+    @unlink(RAIZ . '/config/instalacion.php');
+    $bien('Configuración escrita');
+
+    Instalacion::olvidar();
+    $final = Instalacion::diagnostico();
+
     $linea();
-    exit(0);
+    $linea($color($final['completa'] ? 'Instalación reparada.' : 'Reparación incompleta.', 'fuerte'));
+    if (!$final['completa']) {
+        $linea('  ' . $final['motivo']);
+    }
+    if ($claveNueva !== '') {
+        $linea();
+        $linea('  Contraseña generada (se muestra una sola vez):');
+        $linea($color('    ' . $claveNueva, 'fuerte'));
+    }
+    $linea();
+    $linea('  Comprueba el estado con:');
+    $linea($color('    php herramientas/cuenta.php estado', 'tenue'));
+    $linea();
+    exit($final['completa'] ? 0 : 1);
 }
 
 /* =========================================================================

@@ -171,9 +171,14 @@ final class Respuesta
      * de siempre, que en un 503 de la propia portada no lleva a ninguna parte.
      * Cada acción es ['texto' => …, 'url' => …, 'principal' => bool].
      *
+     * $detalle son líneas técnicas —clase de la excepción, archivo, línea,
+     * traza— y solo se llenan mientras la instalación no ha terminado. Ver
+     * App::detalleDelFallo() para por qué eso no es una fuga.
+     *
      * @param array<int, array{texto: string, url: string, principal?: bool}> $acciones
+     * @param array<int, string> $detalle
      */
-    public static function error(int $codigo, string $titulo, string $mensaje = '', array $acciones = []): never
+    public static function error(int $codigo, string $titulo, string $mensaje = '', array $acciones = [], array $detalle = []): never
     {
         http_response_code($codigo);
         echo self::render('error', [
@@ -181,6 +186,7 @@ final class Respuesta
             'titulo'   => $titulo,
             'mensaje'  => $mensaje,
             'acciones' => $acciones,
+            'detalle'  => $detalle,
         ]);
         exit;
     }

@@ -144,6 +144,10 @@ PHP;
         if (function_exists('opcache_invalidate')) {
             @opcache_invalidate(self::rutaArchivo(), true);
         }
+        // is_file() y compañía tienen caché propia. Sin limpiarla, existe()
+        // puede seguir diciendo que no hay configuración en esta misma petición,
+        // justo después de acabar de escribirla.
+        clearstatcache(true, self::rutaArchivo());
 
         self::$valores = $valores;
         self::$cargada = true;

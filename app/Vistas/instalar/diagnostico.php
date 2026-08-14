@@ -105,7 +105,7 @@ if ($errores) {
       <div class="card__body">
         <div class="check-list">
           <?php
-          $fila('Conexión', 'Con los datos de config/config.php', $estado['bd'] ? 'correcta' : 'sin conexión', $estado['bd'] ? 'ok' : 'fail');
+          $fila('Conexión', 'Con los datos de ' . ($estado['fuente'] ?? 'config/config.php'), $estado['bd'] ? 'correcta' : 'sin conexión', $estado['bd'] ? 'ok' : 'fail');
           $fila('Tablas del esquema', 'Versión ' . Esquema::VERSION,
               $estado['tablas'] . ' de ' . $estado['esperadas'], $estado['faltantes'] ? 'fail' : 'ok');
           if ($estado['faltantes']) {

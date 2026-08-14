@@ -27,10 +27,45 @@ final class Instalacion
 {
     private static ?array $cache = null;
 
+    /** Credenciales que el paso 2 del asistente deja mientras dura el proceso. */
+    public static function rutaConexion(): string
+    {
+        return RAIZ . '/config/instalacion.php';
+    }
+
+    /**
+     * Datos de conexión de una instalación a medio hacer, si los hay.
+     *
+     * Los escribe el paso 2 y los borra el paso 5 al terminar. Mientras
+     * existan, son la única forma de mirar la base de datos: config/config.php
+     * todavía no está.
+     *
+     * @return array{host:string,puerto:int,nombre:string,usuario:string,clave:string,prefijo:string}|null
+     */
+    public static function credencialesEnCurso(): ?array
+    {
+        $ruta = self::rutaConexion();
+        clearstatcache(true, $ruta);
+        if (!is_file($ruta) || !is_readable($ruta)) {
+            return null;
+        }
+        // Otro proceso de PHP-FPM puede tener cacheada una versión anterior.
+        if (function_exists('opcache_invalidate')) {
+            @opcache_invalidate($ruta, true);
+        }
+        try {
+            $datos = require $ruta;
+        } catch (\Throwable) {
+            return null;
+        }
+        return (is_array($datos) && !empty($datos['nombre'])) ? $datos : null;
+    }
+
     /**
      * @return array{
      *   config: bool, bd: bool, tablas: int, esperadas: int, faltantes: array<int,string>,
-     *   administradores: int, usuarios: int, eventos: int, completa: bool, motivo: string
+     *   administradores: int, usuarios: int, eventos: int, completa: bool, motivo: string,
+     *   fuente: string
      * }
      */
     public static function diagnostico(): array
@@ -50,11 +85,32 @@ final class Instalacion
             'eventos'         => 0,
             'completa'        => false,
             'motivo'          => '',
+            'fuente'          => 'config/config.php',
         ];
 
+        // Sin config.php todavía se puede mirar la base: el asistente deja sus
+        // credenciales en config/instalacion.php mientras trabaja.
+        //
+        // Antes se devolvía aquí mismo «nunca se instaló», y el diagnóstico de
+        // una instalación parada a mitad —con las dieciséis tablas ya creadas—
+        // anunciaba «sin conexión, 0 de 16 tablas». Justo lo contrario de lo
+        // que pasaba, y en la única pantalla a la que se acude para averiguarlo.
         if (!$d['config']) {
-            $d['motivo'] = 'Todavía no existe config/config.php: la plataforma nunca se instaló.';
-            return self::$cache = $d;
+            $credenciales = self::credencialesEnCurso();
+            if ($credenciales === null) {
+                $d['motivo'] = 'Todavía no existe config/config.php: la plataforma nunca se instaló.';
+                return self::$cache = $d;
+            }
+            $d['fuente'] = 'config/instalacion.php (instalación en curso)';
+            Config::establecerEnMemoria([
+                'bd_host'    => $credenciales['host'],
+                'bd_puerto'  => (int) $credenciales['puerto'],
+                'bd_nombre'  => $credenciales['nombre'],
+                'bd_usuario' => $credenciales['usuario'],
+                'bd_clave'   => $credenciales['clave'],
+                'bd_prefijo' => $credenciales['prefijo'],
+            ]);
+            Bd::establecerPrefijo((string) $credenciales['prefijo']);
         }
 
         try {
@@ -80,8 +136,10 @@ final class Instalacion
 
             if ($d['administradores'] === 0) {
                 $d['motivo'] = $d['usuarios'] === 0
-                    ? 'Las tablas están creadas pero no hay ninguna cuenta del equipo: la instalación '
-                        . 'se interrumpió antes de crear la cuenta administradora.'
+                    ? 'Las ' . $d['tablas'] . ' tablas están creadas pero la tabla de usuarios está '
+                        . 'vacía: la instalación se interrumpió entre el paso 3 (tablas) y el paso 5 '
+                        . '(crear la cuenta y el evento). Vuelve al asistente y termina esos dos pasos; '
+                        . 'no se borrará nada de lo ya creado.'
                     : 'Hay cuentas del equipo pero ninguna administradora activa.';
                 return self::$cache = $d;
             }
@@ -89,6 +147,9 @@ final class Instalacion
             $d['completa'] = true;
             if ($d['eventos'] === 0) {
                 $d['motivo'] = 'Hay cuenta administradora pero ningún evento creado.';
+            } elseif (!$d['config']) {
+                $d['motivo'] = 'La cuenta y el evento existen, pero falta escribir config/config.php: '
+                    . 'vuelve al asistente y pulsa «Terminar». No se duplicará nada.';
             }
         } catch (\Throwable $e) {
             $d['motivo'] = 'No se pudo consultar la base de datos: ' . $e->getMessage();

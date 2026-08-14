@@ -223,6 +223,11 @@ Node y Python se usan solo para herramientas y pruebas, nunca en producción.
 BASE=/cumbreAI php -S 127.0.0.1:8900 -t . pruebas/servidor.php &
 php pruebas/extremo-a-extremo.php
 
+# El asistente de instalación, de principio a fin: cada paso, el diagnóstico
+# con la base a medio crear, y qué se ve en pantalla cuando algo falla.
+# Deja la base de pruebas vacía y vuelve a instalarla.
+php pruebas/instalacion.php
+
 # El generador de QR
 php pruebas/qr-php-contra-js.php          # servidor contra referencia JS
 python3 pruebas/qr-contra-referencia.py   # JS contra la librería de Python
