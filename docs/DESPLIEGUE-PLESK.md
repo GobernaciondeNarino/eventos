@@ -268,9 +268,10 @@ UNION ALL SELECT 'evt_migracion',    COUNT(*) FROM evt_migracion
 UNION ALL SELECT 'evt_bitacora',     COUNT(*) FROM evt_bitacora;
 ```
 
-Las diez restantes —`evt_persona`, `evt_inscripcion`, `evt_asistencia`, `evt_contacto`,
-`evt_sesion`, `evt_codigo_acceso`, `evt_intento`, `evt_expositor`, `evt_propuesta`,
-`evt_archivo`— **tienen que estar vacías recién instalado**. Que lo estén es lo correcto.
+Las diez restantes —`evt_persona`, `evt_persona_caracterizacion`, `evt_credencial`,
+`evt_asistencia`, `evt_contacto`, `evt_charla`, `evt_propuesta`, `evt_sesion`,
+`evt_codigo_acceso`, `evt_intento`— **tienen que estar vacías recién instalado**. Que lo estén
+es lo correcto: se llenan con el uso.
 
 No hace falta entrar a phpMyAdmin para esto: **`/cumbreAI/instalar/diagnostico`** cuenta lo
 mismo en una pantalla, y funciona aunque `config/config.php` todavía no exista.
