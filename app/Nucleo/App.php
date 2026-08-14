@@ -267,7 +267,16 @@ final class App
         }
 
         if (str_starts_with(self::peticion()->ruta(), '/admin')) {
-            Respuesta::redirigir('/admin/eventos', 'Crea el primer evento para empezar.', 'warn');
+            // Solo el administrador puede crear el evento. Mandar allí a un
+            // operador es mandarlo a un 403: se le dice qué pasa y a quién
+            // pedírselo, que es lo único que puede hacer.
+            if (Guardia::puede('administrador')) {
+                Respuesta::redirigir('/admin/eventos', 'Crea el primer evento para empezar.', 'warn');
+            }
+            Respuesta::error(503, 'Todavía no hay un evento abierto',
+                'El equipo aún no ha creado el evento. Hasta que un administrador lo publique '
+                . 'no hay nada que acreditar ni que consultar.',
+                [['texto' => 'Salir', 'url' => Url::a('/admin/entrar'), 'principal' => true]]);
         }
 
         if (!Instalacion::hayAdministrador()) {

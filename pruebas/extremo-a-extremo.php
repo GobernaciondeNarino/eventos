@@ -940,6 +940,63 @@ comprobar('la cookie de sesión no es el identificador guardado',
     $sesiones && $maria->cookie('evtic_asis') !== '' && $sesiones !== $maria->cookie('evtic_asis'));
 
 /* =========================================================================
+   8b · Una cuenta nueva tiene que cambiar su contraseña
+   -------------------------------------------------------------------------
+   Al crear una cuenta del equipo se marca «debe cambiar», pero esa marca no la
+   miraba nadie y no existía ninguna pantalla para cambiarla: la persona se
+   quedaba para siempre con la clave que otro le escribió y probablemente le
+   pasó por chat.
+   ========================================================================= */
+titulo('Contraseña de una cuenta nueva');
+
+$admin->post('/admin/organizadores/crear', [
+    'nombre' => 'Operador De Puerta',
+    'correo' => 'puerta@narino.gov.co',
+    'clave'  => 'clave temporal del jefe',
+    'rol'    => 'operador',
+]);
+comprobar('el administrador crea una cuenta de operador',
+    (int) $pdo->query("SELECT debe_cambiar FROM {$BD['prefijo']}usuario
+                        WHERE correo = 'puerta@narino.gov.co'")->fetchColumn() === 1);
+
+$nuevo = new Cliente($BASE);
+$nuevo->get('/admin/entrar');
+$nuevo->post('/admin/entrar', ['correo' => 'puerta@narino.gov.co', 'clave' => 'clave temporal del jefe']);
+$nuevo->get('/admin/escaner', false);
+comprobar('con la clave que le puso otro no puede trabajar todavía',
+    $nuevo->codigo === 303 && str_contains($nuevo->cabecera('Location'), '/admin/clave'),
+    $nuevo->codigo . ' → ' . $nuevo->cabecera('Location'));
+
+$html = $nuevo->get('/admin/clave');
+comprobar('y se le explica por qué', str_contains($html, 'la puso otra persona'));
+
+$html = $nuevo->post('/admin/clave', [
+    'actual' => 'no es esta', 'nueva' => 'una clave mia y bien larga', 'nueva2' => 'una clave mia y bien larga',
+]);
+comprobar('sin la contraseña actual no se cambia', str_contains($html, 'no es tu contraseña actual'));
+
+$html = $nuevo->post('/admin/clave', [
+    'actual' => 'clave temporal del jefe', 'nueva' => 'corta', 'nueva2' => 'corta',
+]);
+comprobar('la nueva tiene que ser larga', str_contains($html, 'al menos 12 caracteres'));
+
+$html = $nuevo->post('/admin/clave', [
+    'actual' => 'clave temporal del jefe',
+    'nueva'  => 'una clave mia y bien larga',
+    'nueva2' => 'una clave mia y bien larga',
+]);
+comprobar('con la actual correcta sí se cambia', str_contains($html, 'Contraseña cambiada'));
+
+$nuevo->get('/admin/escaner', false);
+comprobar('y ya puede trabajar', $nuevo->codigo === 200, (string) $nuevo->codigo);
+
+$viejaClave = new Cliente($BASE);
+$viejaClave->get('/admin/entrar');
+$html = $viejaClave->post('/admin/entrar',
+    ['correo' => 'puerta@narino.gov.co', 'clave' => 'clave temporal del jefe']);
+comprobar('la contraseña anterior deja de servir', str_contains($html, 'incorrectos'));
+
+/* =========================================================================
    9a · Búsqueda por texto
    -------------------------------------------------------------------------
    Sin emulación de sentencias preparadas, MySQL no admite repetir un marcador

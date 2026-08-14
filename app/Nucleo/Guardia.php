@@ -96,6 +96,12 @@ final class Guardia
             Respuesta::redirigir('/admin/activar-2fa');
         }
 
+        // Con una contraseña puesta por otra persona no se trabaja: se cambia
+        // primero. Hasta ahora la marca se guardaba y no la miraba nadie.
+        if ((int) $usuario['debe_cambiar'] === 1) {
+            Respuesta::redirigir('/admin/clave');
+        }
+
         if ($usuario['estado'] !== 'activo') {
             Sesion::cerrar('admin');
             Respuesta::error(403, 'Cuenta suspendida',

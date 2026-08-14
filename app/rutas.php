@@ -96,6 +96,10 @@ $enrutador->ambos('/admin/verificar', [Acceso::class, 'verificarSegundoFactor'])
 $enrutador->ambos('/admin/activar-2fa', [Acceso::class, 'activarSegundoFactor']);
 $enrutador->post('/admin/salir', [Acceso::class, 'salirEquipo']);
 
+// Sin guardia: quien tiene que cambiar la contraseña obligatoriamente todavía
+// no ha pasado el guardia del panel, y el propio método comprueba la sesión.
+$enrutador->ambos('/admin/clave', [Acceso::class, 'cambiarClave']);
+
 $enrutador->get('/admin', [Admin::class, 'panel'], 'admin:consulta');
 
 $enrutador->get('/admin/escaner', [Admin::class, 'escaner'], 'admin:operador');

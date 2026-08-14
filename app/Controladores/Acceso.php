@@ -421,6 +421,62 @@ final class Acceso
         ]);
     }
 
+    /**
+     * Cambiar la propia contraseña.
+     *
+     * Faltaba. Quien crea una cuenta del equipo le pone una contraseña y la
+     * marca como «debe cambiarla», pero no existía ninguna pantalla para
+     * hacerlo: la persona se quedaba para siempre con la clave que otro le
+     * escribió y que probablemente le pasó por chat.
+     *
+     * Se pide la actual además de la nueva. Sin eso, un equipo dejado con la
+     * sesión abierta en el puesto de acreditación es una cuenta regalada.
+     */
+    public function cambiarClave(Peticion $peticion): void
+    {
+        $usuario = \App\Nucleo\Guardia::usuarioActual();
+        if ($usuario === null) {
+            Respuesta::redirigir('/admin/entrar');
+        }
+
+        $errores = [];
+        if ($peticion->esPost()) {
+            $actual = $peticion->campoCrudo('actual');
+            $nueva = $peticion->campoCrudo('nueva');
+            $repetida = $peticion->campoCrudo('nueva2');
+
+            Limite::exigir('acceso_admin', 'clave:' . $usuario['correo']);
+
+            if (!Usuario::verificarClave($usuario, $actual)) {
+                Limite::registrarFallo('acceso_admin', 'clave:' . $usuario['correo']);
+                $errores['actual'] = 'Esa no es tu contraseña actual.';
+            } elseif (mb_strlen($nueva) < 12) {
+                $errores['nueva'] = 'La contraseña nueva debe tener al menos 12 caracteres.';
+            } elseif ($nueva !== $repetida) {
+                $errores['nueva2'] = 'Las dos contraseñas deben coincidir.';
+            } elseif ($nueva === $actual) {
+                $errores['nueva'] = 'La contraseña nueva tiene que ser distinta de la anterior.';
+            } else {
+                // cambiarClave() cierra las demás sesiones de esa cuenta, así
+                // que hay que volver a abrir la de aquí para no echar de la
+                // plataforma a quien acaba de hacer lo correcto.
+                Usuario::cambiarClave((int) $usuario['id'], $nueva);
+                Limite::limpiar('acceso_admin', 'clave:' . $usuario['correo']);
+                Sesion::abrir('admin', (int) $usuario['id'], ['pendiente_2fa' => false]);
+                Bitacora::registrar('clave_cambiada', 'usuario', (int) $usuario['id']);
+                Respuesta::redirigir('/admin', 'Contraseña cambiada.');
+            }
+        }
+
+        Respuesta::vista('admin/clave', [
+            'titulo'       => 'Cambiar mi contraseña',
+            'pantalla'     => '',
+            'debeCambiar'  => (int) $usuario['debe_cambiar'] === 1,
+            'errores'      => $errores,
+            'sinPlantilla' => true,
+        ]);
+    }
+
     public function salirEquipo(Peticion $peticion): void
     {
         $usuario = \App\Nucleo\Guardia::usuarioActual();
