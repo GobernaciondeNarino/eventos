@@ -1084,6 +1084,10 @@ $nuevo->post('/admin/correo/red', [], false);
 comprobar('ni puede lanzar el diagnóstico de red', $nuevo->codigo !== 200,
     'respondió ' . $nuevo->codigo);
 
+$nuevo->post('/admin/correo/local', [], false);
+comprobar('ni cambiar la configuración al correo local', $nuevo->codigo !== 200,
+    'respondió ' . $nuevo->codigo);
+
 $html = $admin->get('/admin/correo');
 comprobar('el administrador sí, y la pantalla carga',
     str_contains($html, 'Modo de envío') && !str_contains($html, 'Algo salió mal'));
@@ -1136,6 +1140,24 @@ comprobar('el diagnóstico de red se ejecuta y se muestra',
     str_contains($html, 'Salida de red hasta'));
 comprobar('con lo que devolvió el DNS', str_contains($html, 'Qué devuelve el DNS'));
 comprobar('y con el estado de mail() en el servidor', str_contains($html, 'sendmail_path'));
+comprobar('prueba también el relé de la propia máquina',
+    str_contains($html, 'Servidor de correo de esta misma máquina'));
+
+/* El botón de un clic: la salida cuando el proveedor bloquea el SMTP saliente. */
+$admin->post('/admin/correo/local', ['puerto' => '25']);
+$guardado = leerConfig($RAIZ);
+comprobar('«Usar el correo local» deja el modo en SMTP', ($guardado['modo_correo'] ?? '') === 'smtp');
+comprobar('apuntando a localhost', ($guardado['smtp_host'] ?? '') === 'localhost');
+comprobar('en el puerto 25', (int) ($guardado['smtp_puerto'] ?? 0) === 25);
+comprobar('sin cifrado, que es lo que habla el relé local',
+    ($guardado['smtp_seguridad'] ?? '') === 'ninguna');
+comprobar('y sin credenciales: el relé local no las pide',
+    ($guardado['smtp_usuario'] ?? 'x') === '' && ($guardado['smtp_clave'] ?? 'x') === '');
+comprobar('un puerto inventado cae al 25',
+    (static function () use ($admin, $RAIZ): bool {
+        $admin->post('/admin/correo/local', ['puerto' => '9999']);
+        return (int) (leerConfig($RAIZ)['smtp_puerto'] ?? 0) === 25;
+    })());
 
 /* =========================================================================
    9a · Búsqueda por texto

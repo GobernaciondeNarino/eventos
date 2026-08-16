@@ -248,6 +248,48 @@ final class Correo
             }
         }
 
+        // El servidor de correo de la propia máquina.
+        //
+        // Es la pieza que faltaba. Cuando el proveedor bloquea la salida SMTP
+        // hacia internet, conectarse a 127.0.0.1 **no es tráfico saliente** y
+        // el bloqueo no aplica: el Postfix o qmail que monta Plesk sigue
+        // escuchando ahí. Es exactamente por donde salen los mensajes de
+        // WordPress en esta misma máquina, y la plataforma puede usarlo igual,
+        // con la ventaja de conservar toda la conversación para depurar.
+        $relayLocal = [];
+        foreach ([25, 587, 465] as $puerto) {
+            $comienzo = microtime(true);
+            $numero = 0;
+            $texto = '';
+            $socket = @stream_socket_client(
+                'tcp://127.0.0.1:' . $puerto,
+                $numero,
+                $texto,
+                3,
+                STREAM_CLIENT_CONNECT
+            );
+            $ms = (int) round((microtime(true) - $comienzo) * 1000);
+            $abrio = is_resource($socket);
+
+            // Si abre, se lee el saludo: confirma que hay un servidor de correo
+            // detrás y no otra cosa cualquiera escuchando en ese puerto.
+            $saludo = '';
+            if ($abrio) {
+                stream_set_timeout($socket, 3);
+                $saludo = trim((string) @fgets($socket, 512));
+                @fwrite($socket, "QUIT\r\n");
+                @fclose($socket);
+            }
+
+            $relayLocal[] = [
+                'puerto' => $puerto,
+                'ok'     => $abrio,
+                'ms'     => $ms,
+                'saludo' => mb_substr($saludo, 0, 120),
+                'error'  => $abrio ? '' : ($texto !== '' ? $texto : 'sin detalle'),
+            ];
+        }
+
         $local = [
             'mail()'             => function_exists('mail') ? 'disponible' : 'desactivada',
             'sendmail_path'      => (string) (ini_get('sendmail_path') ?: '(sin definir)'),
@@ -257,21 +299,35 @@ final class Correo
         ];
 
         return [
-            'host'     => $host,
-            'ipv4'     => $ipv4,
-            'ipv6'     => $ipv6,
-            'intentos' => $intentos,
-            'local'    => $local,
-            'resumen'  => self::resumirRed($intentos, $ipv4, $ipv6),
+            'host'       => $host,
+            'ipv4'       => $ipv4,
+            'ipv6'       => $ipv6,
+            'intentos'   => $intentos,
+            'relayLocal' => $relayLocal,
+            'local'      => $local,
+            'resumen'    => self::resumirRed($intentos, $ipv4, $ipv6, $relayLocal),
         ];
     }
 
     /** @param array<int, array{familia: string, puerto: int, ok: bool, error: string}> $intentos */
-    private static function resumirRed(array $intentos, array $ipv4, array $ipv6): string
+    private static function resumirRed(array $intentos, array $ipv4, array $ipv6, array $relayLocal = []): string
     {
+        $localOk = array_values(array_filter($relayLocal, static fn(array $r): bool => $r['ok']));
+        $sugerenciaLocal = '';
+        if ($localOk !== []) {
+            $puerto = (int) $localOk[0]['puerto'];
+            $sugerenciaLocal = ' **Hay servidor de correo en esta misma máquina**, escuchando en '
+                . '127.0.0.1:' . $puerto . '. Conectarse ahí no es tráfico saliente, así que el '
+                . 'bloqueo no le aplica: es por donde salen los mensajes de WordPress en este '
+                . 'servidor. Pon servidor «localhost», puerto ' . $puerto . ', seguridad «sin '
+                . 'cifrar» y deja usuario y contraseña vacíos —el botón «Usar el correo local» de '
+                . 'abajo lo hace—. Cuida entonces el dominio del remitente: mira el aviso de '
+                . 'arriba.';
+        }
+
         if ($intentos === []) {
             return 'El nombre del servidor no se pudo resolver. Revisa el DNS del servidor '
-                . '(/etc/resolv.conf) y que el nombre esté bien escrito.';
+                . '(/etc/resolv.conf) y que el nombre esté bien escrito.' . $sugerenciaLocal;
         }
 
         $abiertos = array_values(array_filter($intentos, static fn(array $i): bool => $i['ok']));
@@ -316,9 +372,11 @@ final class Correo
             return false;
         };
 
-        $comun = ' Mientras se resuelve, el modo «Función mail() del servidor» entrega por el '
-            . 'correo local, que es por donde salen los mensajes de WordPress en esta misma '
-            . 'máquina; revisa entonces el aviso sobre el dominio del remitente.';
+        $comun = $sugerenciaLocal !== ''
+            ? $sugerenciaLocal
+            : ' Mientras se resuelve, el modo «Función mail() del servidor» entrega por el correo '
+                . 'local, que es por donde salen los mensajes de WordPress en esta misma máquina; '
+                . 'revisa entonces el aviso sobre el dominio del remitente.';
 
         if ($tiene($v4, 'timed out', 'timeout')) {
             return 'Ningún puerto abrió y los intentos por IPv4 se quedaron esperando hasta agotar '
@@ -328,8 +386,11 @@ final class Correo
         }
 
         if ($tiene($v4, 'refused')) {
-            return 'La conexión fue rechazada de inmediato. Eso lo hace un cortafuegos local o un '
-                . 'proxy de salida, no una red sin ruta. Revisa el cortafuegos del servidor.' . $comun;
+            return 'La salida SMTP está bloqueada a propósito: los tres puertos responden «rechazado» '
+                . 'al instante, y eso no lo hace una red sin ruta —esa da «unreachable»— ni un puerto '
+                . 'filtrado —ese se queda esperando—. Lo hace un cortafuegos con regla de rechazo, en '
+                . 'el propio servidor o en el proveedor. Es lo normal en alojamiento compartido: se '
+                . 'cierra la salida SMTP para que nadie use el servidor como relé de spam.' . $comun;
         }
 
         if ($tiene($intentos, 'unreachable', 'no route')) {
@@ -791,6 +852,19 @@ final class Correo
         if ($contiene('too many login attempts', '4.7.0') || $codigo === '454') {
             $pistas[] = 'Demasiados intentos seguidos. Google bloquea temporalmente: espera unos '
                 . 'minutos antes de volver a probar.';
+        }
+        if ($contiene('5.7.30', 'basic authentication is not supported')) {
+            $pistas[] = 'Microsoft 365 apagó la autenticación básica para envío de clientes '
+                . '(550-5.7.30), de forma permanente desde octubre de 2022. Usuario y contraseña '
+                . 'ya no sirven contra smtp.office365.com: hay que usar OAuth2, o el relé SMTP '
+                . 'del tenant con la IP del servidor autorizada. Si el correo del dominio está en '
+                . 'Microsoft y no en Google, esta es la causa.';
+        }
+        if ($contiene('5.7.515', 'does not meet the required authentication level')) {
+            $pistas[] = 'Microsoft rechaza el mensaje por no venir autenticado (550-5.7.515). '
+                . 'Desde mayo de 2025 exige SPF, DKIM y DMARC alineados a quien manda más de '
+                . '5.000 mensajes al día a Outlook, Hotmail o Live. Publica los tres registros '
+                . 'del dominio.';
         }
         if ($codigo === '530' || $contiene('5.5.1 authentication required')) {
             $pistas[] = 'El servidor exige autenticarse y no se le dieron credenciales, o se '

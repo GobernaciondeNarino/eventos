@@ -942,6 +942,50 @@ final class Admin
      * DNS y cada puerto por separado. Con «Network is unreachable» a secas se
      * piden aperturas de puerto que muchas veces ya estaban hechas.
      */
+    /**
+     * Deja la configuración apuntando al servidor de correo de la propia máquina.
+     *
+     * Un botón y no un instructivo, porque es la salida cuando el proveedor
+     * bloquea la salida SMTP y hay que aplicarla deprisa: servidor localhost,
+     * sin cifrado y sin credenciales. Conectarse a 127.0.0.1 no es tráfico
+     * saliente, así que el bloqueo no le aplica; es la misma ruta por la que
+     * WordPress envía en este servidor.
+     */
+    public function usarCorreoLocal(Peticion $peticion): void
+    {
+        $puerto = (int) $peticion->campo('puerto', '25');
+        if (!in_array($puerto, [25, 587, 465], true)) {
+            $puerto = 25;
+        }
+
+        $nuevos = [
+            'modo_correo'    => 'smtp',
+            'smtp_host'      => 'localhost',
+            'smtp_puerto'    => $puerto,
+            'smtp_seguridad' => $puerto === 465 ? 'ssl' : 'ninguna',
+            'smtp_usuario'   => '',
+            'smtp_clave'     => '',
+            // El relé de la propia máquina suele traer certificado autofirmado,
+            // y con «sin cifrar» esto no se usa; queda puesto para que cambiar
+            // a 465 después no falle por el certificado.
+            'smtp_verificar_certificado' => false,
+        ];
+
+        if (!Config::escribir($nuevos + Config::todo())) {
+            Respuesta::redirigir('/admin/correo',
+                'No se pudo escribir config/config.php. Revisa los permisos de config/.', 'warn');
+        }
+        Config::establecerEnMemoria($nuevos);
+
+        Bitacora::registrar('correo_configurado', 'sistema', null, [
+            'modo' => 'smtp', 'host' => 'localhost', 'puerto' => $puerto, 'via' => 'boton_local',
+        ]);
+
+        Respuesta::redirigir('/admin/correo',
+            'Configurado para el correo local (localhost:' . $puerto . '). Prueba el envío, y '
+            . 'revisa el aviso sobre el dominio del remitente.', 'ok');
+    }
+
     public function probarRedCorreo(Peticion $peticion): void
     {
         $quien = (string) (Guardia::usuarioActual()['id'] ?? '0');

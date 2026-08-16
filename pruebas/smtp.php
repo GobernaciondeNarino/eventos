@@ -441,6 +441,89 @@ comprobar('no encuentra direcciones', $red['ipv4'] === [] && $red['ipv6'] === []
 comprobar('y lo dice en el resumen',
     str_contains($red['resumen'], 'no se pudo resolver'), $red['resumen']);
 
+/* =====================================================================
+   El relé de la propia máquina
+   -------------------------------------------------------------------------
+   Es la salida cuando el proveedor bloquea la salida SMTP: 127.0.0.1 no es
+   tráfico saliente. En el servidor de la Gobernación los tres puertos hacia
+   internet responden «rechazado» al instante y WordPress sigue enviando desde
+   ahí, lo que solo puede ser por el correo local.
+   ===================================================================== */
+
+titulo('Servidor de correo de la propia máquina');
+
+$lanzado = $levantar('sin-starttls');
+[$proceso, $tuberias, $puertoVivo] = $lanzado;
+
+// El diagnóstico prueba 127.0.0.1 en 25, 587 y 465. Ninguno estará vivo aquí,
+// pero la estructura tiene que salir igual.
+$red = Correo::diagnosticoDeRed('localhost', [$puertoVivo]);
+
+comprobar('se prueba el relé local', !empty($red['relayLocal']));
+comprobar('en los tres puertos de correo',
+    count($red['relayLocal'] ?? []) === 3, (string) count($red['relayLocal'] ?? []));
+comprobar('cada uno con su resultado',
+    isset($red['relayLocal'][0]['ok'], $red['relayLocal'][0]['puerto'], $red['relayLocal'][0]['error']));
+$puertosLocales = array_column($red['relayLocal'], 'puerto');
+comprobar('los puertos son 25, 587 y 465', $puertosLocales === [25, 587, 465],
+    implode(', ', $puertosLocales));
+$bajar($lanzado);
+
+// Ahora con un servidor de mentira escuchando de verdad en 127.0.0.1, para
+// comprobar que se detecta y que se lee su saludo.
+titulo('Con el relé local respondiendo');
+
+$falso = stream_socket_server('tcp://127.0.0.1:0', $n, $t);
+$nombreFalso = stream_socket_get_name($falso, false);
+$puertoFalso = (int) substr((string) $nombreFalso, strrpos((string) $nombreFalso, ':') + 1);
+fclose($falso);
+
+$lanzadoLocal = $levantar('sin-starttls');
+[$procesoLocal, $tuberiasLocal, $puertoLocal] = $lanzadoLocal;
+
+// diagnosticoDeRed prueba puertos fijos, así que aquí se comprueba la pieza
+// suelta: que un puerto con servidor de correo detrás devuelva su saludo.
+$numero = 0;
+$texto = '';
+$socket = @stream_socket_client('tcp://127.0.0.1:' . $puertoLocal, $numero, $texto, 3);
+comprobar('el relé de prueba acepta la conexión', is_resource($socket), $texto);
+if (is_resource($socket)) {
+    stream_set_timeout($socket, 3);
+    $saludo = trim((string) fgets($socket, 512));
+    comprobar('y saluda como un servidor de correo',
+        str_starts_with($saludo, '220'), $saludo);
+    fclose($socket);
+}
+$bajar($lanzadoLocal);
+
+titulo('Un bloqueo de salida se explica como tal');
+
+$intentos = [
+    ['destino' => '74.125.197.109', 'familia' => 'v4', 'puerto' => 587, 'ok' => false, 'ms' => 1, 'error' => 'Connection refused'],
+    ['destino' => '2607:f8b0::1',   'familia' => 'v6', 'puerto' => 587, 'ok' => false, 'ms' => 1, 'error' => 'Network is unreachable'],
+    ['destino' => '74.125.197.109', 'familia' => 'v4', 'puerto' => 465, 'ok' => false, 'ms' => 1, 'error' => 'Connection refused'],
+    ['destino' => '74.125.197.109', 'familia' => 'v4', 'puerto' => 25,  'ok' => false, 'ms' => 1, 'error' => 'Connection refused'],
+];
+$metodo = new ReflectionMethod(Correo::class, 'resumirRed');
+$metodo->setAccessible(true);
+
+$sinLocal = $metodo->invoke(null, $intentos, ['74.125.197.109'], ['2607:f8b0::1'], [
+    ['puerto' => 25, 'ok' => false, 'ms' => 1, 'saludo' => '', 'error' => 'Connection refused'],
+]);
+comprobar('se dice que el bloqueo es a propósito',
+    str_contains($sinLocal, 'a propósito') || str_contains($sinLocal, 'cortafuegos'), $sinLocal);
+comprobar('y se distingue de «sin ruta» y de «filtrado»',
+    str_contains($sinLocal, 'unreachable') && str_contains($sinLocal, 'filtrado'), $sinLocal);
+
+$conLocal = $metodo->invoke(null, $intentos, ['74.125.197.109'], ['2607:f8b0::1'], [
+    ['puerto' => 25, 'ok' => true, 'ms' => 1, 'saludo' => '220 servidor listo', 'error' => ''],
+]);
+comprobar('con relé local, se propone usarlo', str_contains($conLocal, '127.0.0.1:25'), $conLocal);
+comprobar('explicando que no es tráfico saliente',
+    str_contains($conLocal, 'no es tráfico saliente'), $conLocal);
+comprobar('y recordando lo del dominio del remitente',
+    str_contains($conLocal, 'remitente'), $conLocal);
+
 echo "\n" . str_repeat('─', 62) . "\n";
 printf("%d comprobaciones correctas · %d fallidas\n\n", $ok, count($fallos));
 foreach ($fallos as $f) {

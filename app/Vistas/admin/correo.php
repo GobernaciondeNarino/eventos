@@ -205,6 +205,47 @@ $codigos = [
           </div>
         <?php endif; ?>
 
+        <?php $localOk = array_values(array_filter($red['relayLocal'] ?? [], static fn(array $r): bool => $r['ok'])); ?>
+        <?php if (!empty($red['relayLocal'])): ?>
+          <div class="stack stack--2" style="padding-top:6px;border-top:1px solid var(--hair,var(--a-14))">
+            <strong style="font-size:13px">Servidor de correo de esta misma máquina</strong>
+            <p class="help" style="margin:0">
+              Conectarse a 127.0.0.1 no es tráfico saliente, así que un bloqueo del proveedor no le
+              aplica. Es la ruta por la que WordPress envía en este servidor.
+            </p>
+            <div style="overflow-x:auto">
+              <table style="width:100%;min-width:420px;border-collapse:collapse">
+                <tbody>
+                  <?php foreach ($red['relayLocal'] as $r): ?>
+                    <tr style="border-bottom:1px solid var(--hair,var(--a-14))">
+                      <td class="mono" style="padding:8px 12px 8px 0;font-size:12px;white-space:nowrap">127.0.0.1:<?= (int) $r['puerto'] ?></td>
+                      <td style="padding:8px 0;font-size:12.5px">
+                        <?php if ($r['ok']): ?>
+                          <span style="color:var(--c-ok,#3fbf7f)">✓ acepta</span>
+                          <?php if ($r['saludo'] !== ''): ?>
+                            <span class="mono" style="color:var(--c-muted);font-size:11px"> · <?= e($r['saludo']) ?></span>
+                          <?php endif; ?>
+                        <?php else: ?>
+                          <span style="color:var(--c-muted)">✕ <span class="mono" style="font-size:11px"><?= e($r['error']) ?></span></span>
+                        <?php endif; ?>
+                      </td>
+                    </tr>
+                  <?php endforeach; ?>
+                </tbody>
+              </table>
+            </div>
+            <?php if ($localOk): ?>
+              <form method="post" action="<?= e(u('/admin/correo/local')) ?>" class="row" style="gap:10px">
+                <?= testigo() ?>
+                <input type="hidden" name="puerto" value="<?= (int) $localOk[0]['puerto'] ?>">
+                <button class="btn btn--primary" type="submit">
+                  Usar el correo local (127.0.0.1:<?= (int) $localOk[0]['puerto'] ?>)
+                </button>
+              </form>
+            <?php endif; ?>
+          </div>
+        <?php endif; ?>
+
         <details>
           <summary style="cursor:pointer;font-size:13px;font-weight:600">Cómo está PHP en este servidor</summary>
           <pre class="sql-preview" style="white-space:pre-wrap;margin:8px 0 0;font-size:11.5px"><?php

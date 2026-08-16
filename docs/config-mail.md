@@ -165,6 +165,8 @@ correo no es el eslabón débil ahí.
 | `553-5.1.8` | Domain of sender address does not exist | El dominio del remitente no resuelve | Usar un dominio real con MX |
 | `552-5.3.4` | Message too large | Mensaje demasiado grande | No debería pasar aquí |
 | `421-4.7.0` | Try again later | Fallo temporal o límite de frecuencia | Reintentar más tarde |
+| `550-5.7.30` | Basic authentication is not supported | **Microsoft 365**: la autenticación básica está apagada de forma permanente desde octubre de 2022 | Usuario y contraseña ya no sirven; hace falta OAuth2 o el relé SMTP del tenant con la IP autorizada |
+| `550-5.7.515` | Does not meet the required authentication level | **Microsoft**: falta SPF/DKIM/DMARC y se superan los 5.000 diarios | Publicar los tres registros del dominio |
 | — | Connection refused · Timed out | El puerto de salida está cerrado | Probar 465/SSL si el 587 no responde |
 | — | TLS / certificado | El cifrado no se estableció | `openssl` activo y reloj del servidor en hora |
 
@@ -272,6 +274,84 @@ coincide con el del servidor, aparece el aviso con la dirección concreta que ha
 
 ---
 
+## 5.3 La salida SMTP está bloqueada: usar el correo local
+
+Es lo que pasa en este servidor, y conviene entenderlo bien porque la solución es de un clic.
+
+### Cómo se sabe
+
+El diagnóstico de red devolvió esto:
+
+```
+Puerto  Familia  Dirección              Resultado
+587     v4       74.125.197.108         ✕ Connection refused
+587     v6       2607:f8b0:4020:c0b::6d ✕ Network is unreachable
+465     v4       74.125.197.108         ✕ Connection refused
+465     v6       2607:f8b0:4020:c0b::6d ✕ Network is unreachable
+25      v4       74.125.197.108         ✕ Connection refused
+25      v6       2607:f8b0:4020:c0b::6d ✕ Network is unreachable
+```
+
+**`Connection refused` inmediato en los tres puertos por IPv4** no es un puerto filtrado —ese se
+queda esperando hasta agotar el tiempo— ni una red sin ruta —esa da `unreachable`—. Es un
+cortafuegos con **regla de rechazo**: alguien decidió cerrar la salida SMTP. Es lo habitual en
+alojamiento compartido, para que nadie use el servidor como relé de spam.
+
+Ningún arreglo del cliente puede saltarse eso.
+
+### La salida: 127.0.0.1 no es tráfico saliente
+
+El bloqueo aplica al tráfico **hacia internet**. El servidor de correo de la propia máquina
+—el Postfix o qmail que monta Plesk— sigue escuchando en `127.0.0.1:25`, y conectarse ahí no
+sale a ninguna parte.
+
+**Es exactamente la ruta por la que WordPress envía en este mismo servidor.** Lo confirma el
+propio diagnóstico: `mail()` disponible y `sendmail_path = /usr/sbin/sendmail -t -i`.
+
+Dos formas de usarla, y la primera es mejor:
+
+| | SMTP a localhost | Modo `mail()` |
+|---|---|---|
+| Configuración | host `localhost`, puerto `25`, sin cifrar, sin credenciales | modo «Función mail()» |
+| Ruta de entrega | La misma | La misma |
+| **Transcripción del envío** | **Sí** — se ve la conversación completa | No |
+| Códigos de error del servidor | Sí, con su explicación | Solo «devolvió falso» |
+
+Hablar SMTP con el relé local da lo mismo que `mail()` pero **deja ver qué pasó**. Cuando un
+mensaje no llegue, esa diferencia es la que permite averiguar por qué.
+
+**Aplicado:** el diagnóstico de red prueba también `127.0.0.1` en los puertos 25, 587 y 465, lee
+el saludo del servidor para confirmar que hay correo detrás, y si responde ofrece un botón
+**«Usar el correo local»** que deja la configuración lista.
+
+### El precio, y cómo se paga
+
+> Un mensaje que sale del servidor local diciendo venir de `@narino.gov.co` **no pasa SPF**: el
+> registro de ese dominio autoriza solo a Google. Sale, pero llega a no deseado o lo rechazan.
+
+**La solución es cambiar el remitente, no el modo.** Usar una dirección del subdominio que este
+Plesk sí gestiona:
+
+1. **Plesk → Correo → Crear dirección**: `no-responder@tic.narino.gov.co`.
+2. En la plataforma, ese correo como **Remitente**.
+3. Comprobar que `tic.narino.gov.co` tenga SPF con la IP del servidor y DKIM activo — Plesk los
+   genera solo al crear el dominio de correo.
+
+La pantalla avisa de esto sola: si el dominio del remitente no coincide con el del servidor,
+aparece el aviso con la dirección concreta que habría que usar.
+
+### Si se quiere SMTP a Google de todas formas
+
+Hay que pedirle al proveedor del servidor que **abra la salida a los puertos 587 y 465 hacia
+smtp.gmail.com**. Es una petición normal y se suele conceder para un origen concreto. Mientras
+tanto, el correo local funciona.
+
+Una tercera vía, si el proveedor no cede: los servicios transaccionales con **API HTTP**
+(SendGrid, Brevo, Mailgun, Amazon SES) envían por el puerto 443, que nunca está bloqueado. La
+plataforma todavía no los habla; si hiciera falta, se añade como un modo más.
+
+---
+
 ## 6. Que los mensajes lleguen a la bandeja de entrada
 
 Que el envío funcione no garantiza que el mensaje se lea. Esto se configura **en el DNS del
@@ -283,8 +363,26 @@ dominio**, no en la plataforma, y lo hace el área de sistemas:
 - **DMARC** — un TXT en `_dmarc.narino.gov.co`. Empezar con `p=none` para poder observar antes
   de endurecer.
 
+También cuenta el **PTR** (DNS inverso) de la IP que envía: si falta o es genérico, la
+entregabilidad baja aunque SPF, DKIM y DMARC pasen. Se pide al proveedor del servidor.
+
 Comprobación rápida: mandar la prueba a una dirección de Gmail y abrir **Mostrar original**.
-Deben salir `SPF: PASS`, `DKIM: PASS` y `DMARC: PASS`.
+Deben salir `SPF: PASS`, `DKIM: PASS` y `DMARC: PASS`. Para una revisión más completa,
+[mail-tester.com](https://www.mail-tester.com) — conviene no salir a producción por debajo de
+8/10.
+
+### Cuándo deja de ser opcional
+
+- **Google y Yahoo** exigen SPF, DKIM y DMARC alineados desde el **1 de febrero de 2024** a quien
+  manda **más de 5.000 mensajes al día** a direcciones de Gmail.
+- **Microsoft** aplica lo equivalente desde el **5 de mayo de 2025** para Outlook, Hotmail y
+  Live, rechazando con `550 5.7.515 Access denied, sending domain does not meet the required
+  authentication level`.
+- Google pide además mantener la tasa de spam reportada **por debajo del 0,3 %**, medible en
+  Postmaster Tools.
+
+Una convocatoria masiva del evento puede cruzar ese umbral de 5.000 en un día. Conviene tener el
+DNS resuelto antes, no después del primer envío grande.
 
 ---
 
@@ -359,6 +457,12 @@ También comprueba que la contraseña no aparezca en la transcripción.
 | 2026-08-16 | **Aplicado:** `Network is unreachable` se explica aparte de «puerto cerrado». Eran indistinguibles en pantalla y llevaban a pedir aperturas de puerto ya hechas. |
 | 2026-08-16 | **Aplicado:** el modo `mail()` deja de ser «lo que no hay que usar». Se confirmó que WordPress envía desde este mismo servidor, así que la entrega local funciona; lo que decide si el mensaje llega es el **dominio del remitente**. La pantalla avisa cuando no coincide con el del servidor y propone la dirección del subdominio. |
 | 2026-08-16 | Corregido: el diagnóstico de red daba todos los puertos por cerrados. Se cerraba el socket y **después** se comprobaba `is_resource()`, que ya era falso. |
+| 2026-08-16 | Con IPv4 ya probándose primero, el diagnóstico reveló lo de verdad: **`Connection refused` inmediato en 587, 465 y 25**. No era IPv6 ni un puerto filtrado: la salida SMTP del servidor está **bloqueada a propósito** con una regla de rechazo. |
+| 2026-08-16 | **Aplicado:** el diagnóstico prueba también el relé de la propia máquina (`127.0.0.1` en 25/587/465) y lee su saludo. Conectarse ahí no es tráfico saliente, así que el bloqueo no le aplica —es la ruta por la que WordPress envía en este servidor—. |
+| 2026-08-16 | **Aplicado:** botón **«Usar el correo local»**, que deja host `localhost`, puerto 25, sin cifrar y sin credenciales. Da la misma entrega que `mail()` pero conservando la transcripción del envío, que es lo que permite depurar. |
+| 2026-08-16 | **Aplicado:** «rechazado» se explica ahora como bloqueo deliberado, distinto de «filtrado» (timeout, del proveedor) y de «sin ruta» (IPv6). Eran tres problemas con tres soluciones distintas y el mismo mensaje en pantalla. |
+| 2026-08-16 | **Aplicado**, de la guía de WP Mail SMTP: códigos `550-5.7.30` y `550-5.7.515` de Microsoft 365, el PTR como factor de entregabilidad, los umbrales de Google/Yahoo (feb-2024) y Microsoft (may-2025) a partir de 5.000 mensajes diarios, y la tasa de spam por debajo del 0,3 %. |
+| 2026-08-16 | **Pendiente:** pedirle al proveedor del servidor que abra la salida a los puertos 587 y 465 hacia smtp.gmail.com. Mientras tanto, correo local. |
 
 > Cuando cambie algo —la cuenta, el proveedor, los límites— **actualizar esta tabla**. Una
 > configuración de correo sin historial es la que nadie se atreve a tocar dos años después.

@@ -132,6 +132,7 @@ $enrutador->get('/admin/correo', [Admin::class, 'correo'], 'admin:administrador'
 $enrutador->post('/admin/correo', [Admin::class, 'guardarCorreo'], 'admin:administrador');
 $enrutador->post('/admin/correo/probar', [Admin::class, 'probarCorreo'], 'admin:administrador');
 $enrutador->post('/admin/correo/red', [Admin::class, 'probarRedCorreo'], 'admin:administrador');
+$enrutador->post('/admin/correo/local', [Admin::class, 'usarCorreoLocal'], 'admin:administrador');
 
 /* =========================================================================
    Archivos subidos
