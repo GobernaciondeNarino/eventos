@@ -1076,12 +1076,13 @@ comprobar('la contraseña anterior deja de servir', str_contains($html, 'incorre
 titulo('Configuración de correo');
 
 // $nuevo es la sesión del operador, que ya cambió su clave más arriba.
-foreach (['/admin/correo'] as $ruta) {
-    $nuevo->get($ruta, false);
-    comprobar("un operador no entra a $ruta",
-        $nuevo->codigo !== 200,
-        'respondió ' . $nuevo->codigo);
-}
+$nuevo->get('/admin/correo', false);
+comprobar('un operador no entra a /admin/correo', $nuevo->codigo !== 200,
+    'respondió ' . $nuevo->codigo);
+
+$nuevo->post('/admin/correo/red', [], false);
+comprobar('ni puede lanzar el diagnóstico de red', $nuevo->codigo !== 200,
+    'respondió ' . $nuevo->codigo);
 
 $html = $admin->get('/admin/correo');
 comprobar('el administrador sí, y la pantalla carga',
@@ -1127,6 +1128,14 @@ $admin->post('/admin/correo', [
 ], false);
 $guardado = leerConfig($RAIZ);
 comprobar('un modo de envío inventado se rechaza', ($guardado['modo_correo'] ?? '') === 'smtp');
+
+// El diagnóstico de red: no manda correo, solo mira si hay ruta de salida.
+$admin->post('/admin/correo/red', []);
+$html = $admin->get('/admin/correo');
+comprobar('el diagnóstico de red se ejecuta y se muestra',
+    str_contains($html, 'Salida de red hasta'));
+comprobar('con lo que devolvió el DNS', str_contains($html, 'Qué devuelve el DNS'));
+comprobar('y con el estado de mail() en el servidor', str_contains($html, 'sendmail_path'));
 
 /* =========================================================================
    9a · Búsqueda por texto

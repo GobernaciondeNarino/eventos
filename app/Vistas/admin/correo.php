@@ -2,7 +2,8 @@
 /**
  * Configuración de correo, con revisión y prueba.
  *
- * @var array $ajustes @var array $revision @var array|null $prueba @var string $sugerido
+ * @var array $ajustes @var array $revision @var array|null $prueba @var array|null $red
+ * @var string $sugerido
  */
 defined('EVENTOS_TIC') || exit;
 
@@ -148,6 +149,74 @@ $codigos = [
     </section>
   <?php endif; ?>
 
+  <!-- ============ Diagnóstico de red ============ -->
+  <?php if (is_array($red)): ?>
+    <?php
+      $abiertos = array_values(array_filter($red['intentos'], static fn(array $i): bool => $i['ok']));
+      $borde = $abiertos ? 'var(--c-ok,#3fbf7f)' : 'var(--c-peligro,#e2574c)';
+    ?>
+    <section class="card" style="border-color:<?= $borde ?>">
+      <div class="card__head">
+        <span>Salida de red hasta <?= e($red['host']) ?></span>
+        <span class="mono" style="font-size:11px;color:var(--c-muted)">
+          <?= count($abiertos) ?> de <?= count($red['intentos']) ?> intentos abrieron
+        </span>
+      </div>
+      <div class="card__body stack stack--3">
+        <p style="margin:0"><?= e($red['resumen']) ?></p>
+
+        <div class="stack stack--1">
+          <strong style="font-size:13px">Qué devuelve el DNS</strong>
+          <p class="help mono" style="margin:0">
+            IPv4: <?= e($red['ipv4'] ? implode(', ', $red['ipv4']) : 'ninguna') ?><br>
+            IPv6: <?= e($red['ipv6'] ? implode(', ', $red['ipv6']) : 'ninguna') ?>
+          </p>
+        </div>
+
+        <?php if ($red['intentos']): ?>
+          <div style="overflow-x:auto">
+            <table style="width:100%;min-width:520px;border-collapse:collapse">
+              <thead>
+                <tr style="text-align:left;border-bottom:1px solid var(--a-22)">
+                  <?php foreach (['Puerto', 'Familia', 'Dirección', 'Resultado'] as $th): ?>
+                    <th style="padding:8px 12px 8px 0;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--c-muted);font-weight:600"><?= e($th) ?></th>
+                  <?php endforeach; ?>
+                </tr>
+              </thead>
+              <tbody>
+                <?php foreach ($red['intentos'] as $i): ?>
+                  <tr style="border-bottom:1px solid var(--hair,var(--a-14))">
+                    <td class="mono" style="padding:9px 12px 9px 0;font-size:12px"><?= (int) $i['puerto'] ?></td>
+                    <td class="mono" style="padding:9px 12px 9px 0;font-size:12px"><?= e($i['familia']) ?></td>
+                    <td class="mono" style="padding:9px 12px 9px 0;font-size:11.5px;color:var(--c-muted)"><?= e($i['destino']) ?></td>
+                    <td style="padding:9px 0;font-size:12.5px">
+                      <?php if ($i['ok']): ?>
+                        <span style="color:var(--c-ok,#3fbf7f)">✓ abre</span>
+                        <span class="mono" style="color:var(--c-muted);font-size:11px"> · <?= (int) $i['ms'] ?> ms</span>
+                      <?php else: ?>
+                        <span style="color:var(--c-peligro,#e2574c)">✕</span>
+                        <span class="mono" style="font-size:11px"> <?= e($i['error']) ?></span>
+                      <?php endif; ?>
+                    </td>
+                  </tr>
+                <?php endforeach; ?>
+              </tbody>
+            </table>
+          </div>
+        <?php endif; ?>
+
+        <details>
+          <summary style="cursor:pointer;font-size:13px;font-weight:600">Cómo está PHP en este servidor</summary>
+          <pre class="sql-preview" style="white-space:pre-wrap;margin:8px 0 0;font-size:11.5px"><?php
+            foreach ($red['local'] as $clave => $valor) {
+                echo e(str_pad($clave, 20) . ' ' . $valor) . "\n";
+            }
+          ?></pre>
+        </details>
+      </div>
+    </section>
+  <?php endif; ?>
+
   <!-- ============ Probar ============ -->
   <section class="card">
     <div class="card__head"><span>Probar ahora</span></div>
@@ -167,6 +236,17 @@ $codigos = [
         <button class="btn btn--primary" type="submit">Probar</button>
       </div>
     </form>
+    <div class="card__body" style="border-top:1px solid var(--hair,var(--a-14))">
+      <form method="post" action="<?= e(u('/admin/correo/red')) ?>" class="stack stack--2">
+        <?= testigo() ?>
+        <p class="help" style="margin:0">
+          Si la prueba falla antes de hablar con el servidor —«Network is unreachable»,
+          «Connection refused», un tiempo de espera agotado— el problema es de red y no de
+          correo. Esto mira el DNS y prueba los puertos 587, 465 y 25 por IPv4 y por IPv6.
+        </p>
+        <div><button class="btn" type="submit">Probar la salida de red</button></div>
+      </form>
+    </div>
   </section>
 
   <!-- ============ Configuración ============ -->
@@ -276,19 +356,31 @@ $codigos = [
                    value="<?= e((string) $ajustes['espera']) ?>">
             <span class="help">Cuánto aguantar sin respuesta antes de darlo por fallido.</span>
           </label>
-          <label class="field" style="justify-content:end">
-            <span class="row" style="gap:8px;cursor:pointer">
+          <div class="field" style="gap:14px">
+            <label class="row" style="gap:8px;cursor:pointer">
               <input type="checkbox" name="smtp_verificar_certificado" value="1"
                      style="width:16px;height:16px;accent-color:var(--c-accent)"
                      <?= $ajustes['verificar'] ? 'checked' : '' ?>>
               <span class="label" style="margin:0">Verificar el certificado del servidor</span>
-            </span>
-            <span class="help">
+            </label>
+            <span class="help" style="margin-top:-8px">
               Déjalo activado. Desactivarlo solo tiene sentido con un servidor de correo interno
               y certificado propio: sin verificación, alguien en medio de la red podría quedarse
               con las credenciales.
             </span>
-          </label>
+
+            <label class="row" style="gap:8px;cursor:pointer">
+              <input type="checkbox" name="smtp_solo_ipv4" value="1"
+                     style="width:16px;height:16px;accent-color:var(--c-accent)"
+                     <?= $ajustes['soloIpv4'] ? 'checked' : '' ?>>
+              <span class="label" style="margin:0">Usar solo IPv4</span>
+            </label>
+            <span class="help" style="margin-top:-8px">
+              La plataforma ya intenta IPv4 antes que IPv6. Marca esto para no intentar IPv6
+              siquiera, en un servidor donde el DNS devuelve dirección IPv6 pero no hay ruta de
+              salida por ahí: es lo que produce «Network is unreachable».
+            </span>
+          </div>
         </div>
       </fieldset>
 

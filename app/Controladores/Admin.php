@@ -822,6 +822,7 @@ final class Admin
             'ajustes'   => $this->ajustesDeCorreo(),
             'revision'  => Correo::revision(),
             'prueba'    => Sesion::datos('admin')['prueba_correo'] ?? null,
+            'red'       => Sesion::datos('admin')['red_correo'] ?? null,
             'sugerido'  => (string) (Guardia::usuarioActual()['correo'] ?? ''),
         ]);
 
@@ -876,6 +877,7 @@ final class Admin
             'smtp_clave'                 => $clave,
             'smtp_espera'                => max(5, min(60, (int) $peticion->campo('smtp_espera', '15'))),
             'smtp_verificar_certificado' => $peticion->marcado('smtp_verificar_certificado'),
+            'smtp_solo_ipv4'             => $peticion->marcado('smtp_solo_ipv4'),
         ];
 
         if (!Config::escribir($nuevos + Config::todo())) {
@@ -932,6 +934,37 @@ final class Admin
             $resultado['ok'] ? 'ok' : 'warn');
     }
 
+    /**
+     * Prueba la salida de red hasta el servidor de correo.
+     *
+     * Separado de probarCorreo() a propósito: cuando la conexión no se abre, la
+     * pregunta ya no es de correo sino de red, y responderla necesita mirar el
+     * DNS y cada puerto por separado. Con «Network is unreachable» a secas se
+     * piden aperturas de puerto que muchas veces ya estaban hechas.
+     */
+    public function probarRedCorreo(Peticion $peticion): void
+    {
+        $quien = (string) (Guardia::usuarioActual()['id'] ?? '0');
+        $espera = Limite::bloqueado('probar_correo', $quien);
+        if ($espera > 0) {
+            Respuesta::redirigir('/admin/correo',
+                'Demasiadas pruebas seguidas. Vuelve a intentarlo en ' . ceil($espera / 60) . ' min.', 'warn');
+        }
+        Limite::registrar('probar_correo', $quien);
+
+        $red = Correo::diagnosticoDeRed();
+
+        Bitacora::registrar('correo_red_probada', 'sistema', null, [
+            'host'  => $red['host'],
+            'ipv4'  => count($red['ipv4']),
+            'ipv6'  => count($red['ipv6']),
+            'abren' => count(array_filter($red['intentos'], static fn(array $i): bool => $i['ok'])),
+        ]);
+
+        Sesion::guardarDatos('admin', ['red_correo' => $red] + Sesion::datos('admin'));
+        Respuesta::redirigir('/admin/correo', 'Diagnóstico de red terminado.', 'ok');
+    }
+
     /** Lo que la pantalla necesita, sin la contraseña. */
     private function ajustesDeCorreo(): array
     {
@@ -947,14 +980,15 @@ final class Admin
             'hayClave'     => (string) Config::obtener('smtp_clave', '') !== '',
             'espera'       => (int) Config::obtener('smtp_espera', 15),
             'verificar'    => (bool) Config::obtener('smtp_verificar_certificado', true),
+            'soloIpv4'     => (bool) Config::obtener('smtp_solo_ipv4', false),
         ];
     }
 
     private function olvidarPrueba(): void
     {
         $datos = Sesion::datos('admin');
-        if (isset($datos['prueba_correo'])) {
-            unset($datos['prueba_correo']);
+        if (isset($datos['prueba_correo']) || isset($datos['red_correo'])) {
+            unset($datos['prueba_correo'], $datos['red_correo']);
             Sesion::guardarDatos('admin', $datos);
         }
     }

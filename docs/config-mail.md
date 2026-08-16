@@ -36,13 +36,17 @@ verdad y explica cada código de error.
 
 ### Por qué SMTP y no la función `mail()` de PHP
 
-`mail()` entrega al servidor de correo local del servidor web. En este despliegue ese servidor
-**no es el que gestiona narino.gov.co**: el buzón está en Google. Un mensaje que salga por ahí
-diciendo venir de `@narino.gov.co` no pasa SPF ni lleva firma DKIM del dominio, así que llega a
-no deseado en el mejor caso y rebota en el peor.
+`mail()` entrega al servidor de correo local del servidor web. Ese servidor **no es el que
+gestiona narino.gov.co**: el buzón está en Google. Un mensaje que salga por ahí diciendo venir
+de `@narino.gov.co` no pasa SPF ni lleva firma DKIM del dominio, así que llega a no deseado en
+el mejor caso y rebota en el peor.
 
 Hablando SMTP directamente con Google, el mensaje sale autenticado como la cuenta institucional,
 con la firma que Google le pone, y llega a la bandeja de entrada.
+
+> **`mail()` no está descartado.** Funciona en este servidor —WordPress envía desde ahí— y es la
+> salida cuando el proveedor no deja salir por SMTP. Lo que hay que cambiar entonces es el
+> **remitente**, no el modo: ver el apartado 5.2.
 
 ---
 
@@ -114,6 +118,7 @@ En `config/config.php`, junto al resto de la configuración:
 'smtp_clave'                 => '····················',
 'smtp_espera'                => 15,
 'smtp_verificar_certificado' => true,
+'smtp_solo_ipv4'             => false,       // true = no intentar IPv6
 ```
 
 Sobre cómo se guarda la contraseña, con honestidad: **queda en claro en ese archivo**, igual que
@@ -180,6 +185,93 @@ PHP no lo usa para SMTP.
 
 ---
 
+## 5.1 Cuando la conexión ni siquiera se abre
+
+Es un caso distinto y hay que tratarlo aparte: si el error aparece **antes** de que el servidor
+salude, el problema es de red y no de correo. Los tres mensajes que salen y lo que significa
+cada uno:
+
+| Mensaje | Qué está pasando | A quién se le pide |
+|---|---|---|
+| `Network is unreachable` · `No route to host` | El sistema **no sabe por dónde salir**. Falla al instante. Casi siempre es IPv6. | A nadie: se arregla en la plataforma |
+| `Connection timed out` | Los paquetes se descartan en silencio: **puerto filtrado**. Tarda hasta agotar la espera. | Al proveedor: que abra la salida |
+| `Connection refused` | Algo respondió «aquí no». Cortafuegos local o proxy de salida. | Al administrador del servidor |
+
+### El caso de IPv6, que es el que se dio aquí
+
+`smtp.gmail.com` publica **dos** direcciones:
+
+```
+A     192.178.212.108
+AAAA  2607:f8b0:4001:c74::6c
+```
+
+Si el servidor resuelve la IPv6 pero no tiene ruta de salida por ahí —lo normal en un VPS al
+que nadie le configuró IPv6—, `stream_socket_client()` falla **al instante** con
+`Network is unreachable`. Y como el mensaje sale igual en el 587 y en el 465, parece que el
+proveedor bloquea todo el SMTP, cuando por IPv4 la conexión funciona perfectamente.
+
+**Aplicado:** el cliente resuelve el nombre y prueba las direcciones **IPv4 primero**, IPv6 de
+reserva. Cada intento queda anotado en la transcripción, así que se ve cuál salió y cuál no. Si
+se quiere no intentar IPv6 siquiera, hay una casilla **«Usar solo IPv4»** en la pantalla.
+
+### El botón «Probar la salida de red»
+
+En **Administración → Correo**, debajo de «Probar ahora». No manda ningún correo: resuelve el
+nombre y prueba a abrir los puertos **587, 465 y 25**, por IPv4 y por IPv6, con espera corta.
+Devuelve una tabla y una conclusión:
+
+```
+Puerto  Familia  Dirección              Resultado
+587     v4       192.178.212.108        ✓ abre · 42 ms
+587     v6       2607:f8b0:4001:c74::6c ✕ Network is unreachable
+465     v4       192.178.212.108        ✓ abre · 39 ms
+...
+```
+
+Con eso se sabe en diez segundos si hay que pedirle algo al proveedor o no. También informa de
+cómo está PHP en el servidor: `mail()`, `sendmail_path`, `openssl` y `disable_functions`.
+
+---
+
+## 5.2 Si el proveedor no deja salir por SMTP
+
+Hay una salida, y en este servidor está comprobada: **WordPress envía correo desde la misma
+máquina**. Eso demuestra que la entrega local funciona, y la plataforma puede usarla con el modo
+**«Función mail() del servidor»**.
+
+Pero hay que entender el precio, porque no es gratis:
+
+> `mail()` entrega al servidor de correo **local**. El mensaje sale desde la IP de este
+> servidor. Si dice venir de `@narino.gov.co` —cuyo SPF autoriza solo a Google—, el receptor ve
+> un remitente no autorizado y lo manda a no deseado, o lo rechaza.
+
+**La solución práctica:** usar como remitente una dirección del **subdominio que este Plesk sí
+gestiona**. Si `tic.narino.gov.co` tiene su buzón en este servidor:
+
+1. **Plesk → Correo → Crear dirección**: `no-responder@tic.narino.gov.co`.
+2. En la plataforma, modo **Función mail()** y remitente `no-responder@tic.narino.gov.co`.
+3. Comprobar que el DNS de `tic.narino.gov.co` tenga SPF con la IP del servidor y DKIM activo
+   —Plesk los genera solo al crear el dominio de correo.
+
+Así el mensaje sale autenticado por el dominio que de verdad lo envía, y llega. Es lo mismo que
+hace WordPress ahí.
+
+La pantalla de correo avisa de esto sola: si el modo es `mail()` y el dominio del remitente no
+coincide con el del servidor, aparece el aviso con la dirección concreta que habría que usar.
+
+**Cuál elegir:**
+
+| | SMTP a Google | mail() con remitente del subdominio |
+|---|---|---|
+| Necesita salida al 587/465 | **Sí** | No |
+| Remitente institucional | `hosting@narino.gov.co` | `no-responder@tic.narino.gov.co` |
+| SPF/DKIM | Los de Google, ya listos | Los del subdominio, los pone Plesk |
+| Cupo | 2.000/día | El del servidor |
+| Preferible | **Sí**, si hay salida | Cuando no la hay |
+
+---
+
 ## 6. Que los mensajes lleguen a la bandeja de entrada
 
 Que el envío funcione no garantiza que el mensaje se lea. Esto se configura **en el DNS del
@@ -212,8 +304,8 @@ Cuando el cupo se agota, Google responde `550-5.4.5` y deja de aceptar hasta el 
 
 | Modo | Cuándo usarlo |
 |---|---|
-| **Servidor SMTP** | Siempre que el correo esté en Google o Microsoft. Es el caso de esta instalación. |
-| **Función mail()** | Solo si el buzón del dominio está en el mismo Plesk que la web. |
+| **Servidor SMTP** | La opción preferible: el mensaje sale autenticado como la cuenta institucional. Necesita que el proveedor deje salir por el 587 o el 465. |
+| **Función mail()** | Cuando no hay salida SMTP. Entrega por el correo local, que en este servidor funciona. **Exige poner como remitente una dirección de un dominio que este Plesk gestione** (apartado 5.2); si no, el mensaje sale pero acaba en no deseado. |
 | **Solo registrar** | Pruebas y desarrollo. No envía nada: escribe los mensajes en `almacen/registro/`. Útil para probar el resto de la plataforma sin gastar cupo ni molestar a nadie. |
 
 En modo «solo registrar», la pantalla de correo lo marca como **bloqueante**: es correcto en
@@ -261,6 +353,12 @@ También comprueba que la contraseña no aparezca en la transcripción.
 | 2026-08-14 | Nueva pantalla **Administración → Correo**: configuración, revisión, prueba real y tabla de códigos. |
 | 2026-08-14 | Se crea la contraseña de aplicación `eventos` para `hosting@narino.gov.co`. **Queda expuesta al compartirla en un canal de chat; se revoca y se genera otra.** |
 | 2026-08-14 | Pendiente del área de sistemas: verificar SPF, DKIM y DMARC del dominio. |
+| 2026-08-16 | La prueba falla con `Network is unreachable` en el 587 **y** en el 465, al instante. No era el proveedor: `smtp.gmail.com` publica A y AAAA, y el servidor resolvía la IPv6 sin tener ruta de salida por ahí. |
+| 2026-08-16 | **Aplicado:** el cliente resuelve el nombre y prueba **IPv4 primero**, IPv6 de reserva, anotando cada intento. Casilla «Usar solo IPv4» para no intentarlo siquiera. |
+| 2026-08-16 | **Aplicado:** botón «Probar la salida de red» — DNS, y puertos 587/465/25 por IPv4 y por IPv6, con el motivo exacto de cada fallo y una conclusión accionable. |
+| 2026-08-16 | **Aplicado:** `Network is unreachable` se explica aparte de «puerto cerrado». Eran indistinguibles en pantalla y llevaban a pedir aperturas de puerto ya hechas. |
+| 2026-08-16 | **Aplicado:** el modo `mail()` deja de ser «lo que no hay que usar». Se confirmó que WordPress envía desde este mismo servidor, así que la entrega local funciona; lo que decide si el mensaje llega es el **dominio del remitente**. La pantalla avisa cuando no coincide con el del servidor y propone la dirección del subdominio. |
+| 2026-08-16 | Corregido: el diagnóstico de red daba todos los puertos por cerrados. Se cerraba el socket y **después** se comprobaba `is_resource()`, que ya era falso. |
 
 > Cuando cambie algo —la cuenta, el proveedor, los límites— **actualizar esta tabla**. Una
 > configuración de correo sin historial es la que nadie se atreve a tocar dos años después.

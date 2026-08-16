@@ -348,6 +348,99 @@ foreach ([
 $pistas = implode(' ', Correo::explicar('', 'lo que sea'));
 comprobar('y todas recuerdan lo del SPF del dominio', str_contains($pistas, 'SPF'), $pistas);
 
+/* =====================================================================
+   Varias direcciones: IPv4 primero, IPv6 de reserva
+   ===================================================================== */
+
+titulo('Cuando el nombre resuelve a varias direcciones');
+
+// Un nombre que resuelve a IPv4 y a IPv6 a la vez. localhost lo hace en
+// cualquier sistema: 127.0.0.1 y ::1.
+$lanzado = $levantar('sin-starttls');
+[$proceso, $tuberias, $puerto] = $lanzado;
+
+$cliente = new Smtp('localhost', $puerto, 'ninguna', '', '', 5, false);
+$abierto = $cliente->comprobar();
+$t = $cliente->transcripcion();
+
+comprobar('se conecta aunque una de las direcciones no sirva', $abierto, $cliente->error());
+comprobar('la transcripción dice a qué dirección se conectó',
+    str_contains($t, 'conectando a tcp://127.0.0.1:') || str_contains($t, 'conectando a tcp://[::1]:'),
+    $t);
+comprobar('y deja ver el nombre entre paréntesis, para no perderse',
+    str_contains($t, '(localhost)'), $t);
+$bajar($lanzado);
+
+// El servidor de mentira escucha solo en 127.0.0.1, así que ::1 falla. Si el
+// cliente probara IPv6 primero y se rindiera, esto no abriría.
+titulo('El primer intento falla y se prueba el siguiente');
+
+$lanzado = $levantar('sin-starttls');
+[$proceso, $tuberias, $puerto] = $lanzado;
+
+$cliente = new Smtp('localhost', $puerto, 'ninguna', '', '', 5, false);
+comprobar('no se rinde con la primera dirección que falle', $cliente->comprobar(), $cliente->error());
+$bajar($lanzado);
+
+/* =====================================================================
+   «Network is unreachable»: el fallo que se confunde con un puerto cerrado
+   ===================================================================== */
+
+titulo('Network is unreachable');
+
+$pistas = implode(' ', Correo::explicar('', 'stream_socket_client(): Network is unreachable'));
+comprobar('se distingue de un puerto cerrado',
+    str_contains($pistas, 'no es un puerto cerrado') || str_contains($pistas, 'no encontró ruta'),
+    $pistas);
+comprobar('se apunta a IPv6 como causa habitual', str_contains($pistas, 'IPv6'), $pistas);
+comprobar('se ofrece la casilla de solo IPv4', str_contains($pistas, 'solo IPv4'), $pistas);
+comprobar('se remite al diagnóstico de red', str_contains($pistas, 'salida de red'), $pistas);
+comprobar('y se recuerda que mail() local es la salida de emergencia',
+    str_contains($pistas, 'mail()'), $pistas);
+
+comprobar('«No route to host» se trata igual',
+    str_contains(implode(' ', Correo::explicar('', 'No route to host')), 'IPv6'));
+
+/* =====================================================================
+   Diagnóstico de red
+   ===================================================================== */
+
+titulo('Diagnóstico de la salida de red');
+
+$puerto = $puertoLibre();
+$lanzado = $levantar('sin-starttls');
+[$proceso, $tuberias, $puertoVivo] = $lanzado;
+
+$red = Correo::diagnosticoDeRed('localhost', [$puertoVivo, $puerto]);
+
+comprobar('resuelve el nombre', $red['ipv4'] !== [] || $red['ipv6'] !== [],
+    json_encode($red['ipv4']) . ' / ' . json_encode($red['ipv6']));
+comprobar('prueba los puertos que se le piden', count($red['intentos']) >= 2, (string) count($red['intentos']));
+
+$abre = array_values(array_filter($red['intentos'],
+    static fn(array $i): bool => $i['ok'] && $i['puerto'] === $puertoVivo));
+comprobar('el puerto con servidor detrás sale como abierto', $abre !== []);
+
+$cierra = array_values(array_filter($red['intentos'],
+    static fn(array $i): bool => !$i['ok'] && $i['puerto'] === $puerto));
+comprobar('el puerto sin nada detrás sale como cerrado', $cierra !== []);
+comprobar('con el motivo que dio el sistema', ($cierra[0]['error'] ?? '') !== '');
+comprobar('y se mide cuánto tardó', ($abre[0]['ms'] ?? -1) >= 0);
+
+comprobar('el resumen dice algo accionable', mb_strlen($red['resumen']) > 40, $red['resumen']);
+comprobar('se informa del estado de mail() en el servidor',
+    isset($red['local']['mail()']) && $red['local']['mail()'] !== '');
+comprobar('y de sendmail_path', isset($red['local']['sendmail_path']));
+$bajar($lanzado);
+
+titulo('Un nombre que no existe');
+
+$red = Correo::diagnosticoDeRed('no-existe-de-verdad.invalid', [587]);
+comprobar('no revienta', is_array($red));
+comprobar('no encuentra direcciones', $red['ipv4'] === [] && $red['ipv6'] === []);
+comprobar('y lo dice en el resumen',
+    str_contains($red['resumen'], 'no se pudo resolver'), $red['resumen']);
+
 echo "\n" . str_repeat('─', 62) . "\n";
 printf("%d comprobaciones correctas · %d fallidas\n\n", $ok, count($fallos));
 foreach ($fallos as $f) {

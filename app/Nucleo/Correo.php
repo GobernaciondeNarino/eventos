@@ -158,14 +158,206 @@ final class Correo
             (string) Config::obtener('smtp_clave', ''),
             (int) Config::obtener('smtp_espera', 15),
             (bool) Config::obtener('smtp_verificar_certificado', true),
+            (bool) Config::obtener('smtp_solo_ipv4', false),
         );
+    }
+
+    /* =====================================================================
+       Diagnóstico de red
+       -------------------------------------------------------------------------
+       Cuando la conexión ni siquiera se abre, la pregunta no es de correo sino
+       de red: ¿resuelve el nombre?, ¿por IPv4 o por IPv6?, ¿qué puerto deja
+       salir el proveedor? Sin poder responderlas, «Network is unreachable» se
+       parece demasiado a «el proveedor lo bloquea todo» y se pierden horas
+       pidiendo aperturas de puerto que ya estaban abiertas.
+       ===================================================================== */
+
+    /**
+     * Prueba la salida a un servidor de correo, dirección por dirección.
+     *
+     * @return array{
+     *   host: string, ipv4: array<int,string>, ipv6: array<int,string>,
+     *   intentos: array<int, array{destino: string, familia: string, puerto: int,
+     *                              ok: bool, ms: int, error: string}>,
+     *   local: array<string, string>, resumen: string
+     * }
+     */
+    public static function diagnosticoDeRed(string $host = '', array $puertos = []): array
+    {
+        $host = $host !== '' ? $host : (string) Config::obtener('smtp_host', 'smtp.gmail.com');
+        $puertos = $puertos !== [] ? $puertos : [587, 465, 25];
+
+        $ipv4 = [];
+        $ipv6 = [];
+        if (filter_var($host, FILTER_VALIDATE_IP) !== false) {
+            if (str_contains($host, ':')) {
+                $ipv6[] = $host;
+            } else {
+                $ipv4[] = $host;
+            }
+        } else {
+            $ipv4 = @gethostbynamel($host) ?: [];
+            foreach (@dns_get_record($host, DNS_AAAA) ?: [] as $registro) {
+                if (!empty($registro['ipv6'])) {
+                    $ipv6[] = (string) $registro['ipv6'];
+                }
+            }
+        }
+
+        $intentos = [];
+        foreach ($puertos as $puerto) {
+            foreach ([['v4', $ipv4], ['v6', $ipv6]] as [$familia, $direcciones]) {
+                // Una por familia basta para saber si hay ruta; probarlas todas
+                // multiplica la espera sin añadir información.
+                $direccion = $direcciones[0] ?? null;
+                if ($direccion === null) {
+                    continue;
+                }
+
+                $literal = $familia === 'v6' ? '[' . $direccion . ']' : $direccion;
+                $comienzo = microtime(true);
+                $numero = 0;
+                $texto = '';
+                // Espera corta: aquí solo interesa si hay ruta, y un puerto
+                // filtrado no debe dejar la pantalla colgada medio minuto.
+                $socket = @stream_socket_client(
+                    'tcp://' . $literal . ':' . $puerto,
+                    $numero,
+                    $texto,
+                    5,
+                    STREAM_CLIENT_CONNECT
+                );
+                $ms = (int) round((microtime(true) - $comienzo) * 1000);
+
+                // El resultado se anota ANTES de cerrar. fclose() invalida el
+                // recurso, así que un is_resource() posterior devuelve falso y
+                // todos los puertos abiertos salían como cerrados.
+                $abrio = is_resource($socket);
+                if ($abrio) {
+                    @fclose($socket);
+                }
+
+                $intentos[] = [
+                    'destino' => $direccion,
+                    'familia' => $familia,
+                    'puerto'  => $puerto,
+                    'ok'      => $abrio,
+                    'ms'      => $ms,
+                    'error'   => $abrio ? '' : ($texto !== '' ? $texto : 'sin detalle'),
+                ];
+            }
+        }
+
+        $local = [
+            'mail()'             => function_exists('mail') ? 'disponible' : 'desactivada',
+            'sendmail_path'      => (string) (ini_get('sendmail_path') ?: '(sin definir)'),
+            'openssl'            => extension_loaded('openssl') ? 'presente' : 'ausente',
+            'allow_url_fopen'    => ini_get('allow_url_fopen') ? 'sí' : 'no',
+            'disable_functions'  => (string) (ini_get('disable_functions') ?: '(ninguna)'),
+        ];
+
+        return [
+            'host'     => $host,
+            'ipv4'     => $ipv4,
+            'ipv6'     => $ipv6,
+            'intentos' => $intentos,
+            'local'    => $local,
+            'resumen'  => self::resumirRed($intentos, $ipv4, $ipv6),
+        ];
+    }
+
+    /** @param array<int, array{familia: string, puerto: int, ok: bool, error: string}> $intentos */
+    private static function resumirRed(array $intentos, array $ipv4, array $ipv6): string
+    {
+        if ($intentos === []) {
+            return 'El nombre del servidor no se pudo resolver. Revisa el DNS del servidor '
+                . '(/etc/resolv.conf) y que el nombre esté bien escrito.';
+        }
+
+        $abiertos = array_values(array_filter($intentos, static fn(array $i): bool => $i['ok']));
+        $v4 = array_values(array_filter($intentos, static fn(array $i): bool => $i['familia'] === 'v4'));
+        $v6 = array_values(array_filter($intentos, static fn(array $i): bool => $i['familia'] === 'v6'));
+        $v4ok = array_values(array_filter($v4, static fn(array $i): bool => $i['ok']));
+        $v6ok = array_values(array_filter($v6, static fn(array $i): bool => $i['ok']));
+
+        $puertosDe = static fn(array $lista): string => implode(', ', array_unique(array_map(
+            static fn(array $i): string => (string) $i['puerto'],
+            $lista
+        )));
+
+        // Con salida por IPv4, lo demás es ruido: la plataforma la prueba
+        // primero y con eso funciona.
+        if ($v4ok !== []) {
+            $mensaje = 'Hay salida por IPv4 a los puertos ' . $puertosDe($v4ok) . '. Configura uno '
+                . 'de esos: 587 con STARTTLS, o 465 con SSL directo.';
+            if ($v6 !== [] && $v6ok === []) {
+                $mensaje .= ' Por IPv6 no sale, que es de donde viene «Network is unreachable»: el '
+                    . 'DNS devuelve una dirección IPv6 y el servidor no tiene ruta por ahí. La '
+                    . 'plataforma ya prueba IPv4 primero, así que no estorba; para no intentarlo '
+                    . 'siquiera, activa «Usar solo IPv4».';
+            }
+            return $mensaje;
+        }
+
+        if ($v6ok !== []) {
+            return 'Solo hay salida por IPv6, a los puertos ' . $puertosDe($v6ok) . '. Funciona, '
+                . 'pero conviene preguntarle al proveedor por qué no sale IPv4.';
+        }
+
+        // Nada abrió. El motivo dice a quién hay que pedirle qué.
+        $tiene = static function (array $lista, string ...$agujas) use (&$intentos): bool {
+            foreach ($lista as $i) {
+                foreach ($agujas as $aguja) {
+                    if (str_contains(mb_strtolower($i['error']), $aguja)) {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        };
+
+        $comun = ' Mientras se resuelve, el modo «Función mail() del servidor» entrega por el '
+            . 'correo local, que es por donde salen los mensajes de WordPress en esta misma '
+            . 'máquina; revisa entonces el aviso sobre el dominio del remitente.';
+
+        if ($tiene($v4, 'timed out', 'timeout')) {
+            return 'Ningún puerto abrió y los intentos por IPv4 se quedaron esperando hasta agotar '
+                . 'el tiempo. Un puerto filtrado se comporta justo así: los paquetes se descartan '
+                . 'en silencio. Pídele al proveedor que abra la salida a los puertos 587 y 465 '
+                . 'hacia smtp.gmail.com.' . $comun;
+        }
+
+        if ($tiene($v4, 'refused')) {
+            return 'La conexión fue rechazada de inmediato. Eso lo hace un cortafuegos local o un '
+                . 'proxy de salida, no una red sin ruta. Revisa el cortafuegos del servidor.' . $comun;
+        }
+
+        if ($tiene($intentos, 'unreachable', 'no route')) {
+            return 'Ningún intento encontró ruta hasta el servidor de correo. «Unreachable» no es '
+                . 'un puerto cerrado: es que el sistema no sabe por dónde salir. Si solo falla '
+                . 'IPv6, actívale «Usar solo IPv4»; si falla también IPv4, el servidor no tiene '
+                . 'salida a internet por esos puertos.' . $comun;
+        }
+
+        return 'Ningún puerto respondió. Pídele al proveedor que abra la salida a los puertos 587 '
+            . 'y 465 hacia smtp.gmail.com.' . $comun;
     }
 
     private static function dominioDelRemitente(string $remitente): string
     {
-        $partes = explode('@', $remitente);
-        $dominio = end($partes);
-        return preg_match('/^[A-Za-z0-9.\-]+$/', $dominio) ? $dominio : 'localhost';
+        $dominio = self::dominioDe($remitente);
+        return $dominio !== '' ? $dominio : 'localhost';
+    }
+
+    /** El dominio de una dirección, en minúsculas y sin «www.». Vacío si no lo parece. */
+    private static function dominioDe(string $direccion): string
+    {
+        $partes = explode('@', $direccion);
+        $dominio = mb_strtolower(trim((string) end($partes)));
+        $dominio = (string) preg_replace('/^www\./', '', $dominio);
+        return preg_match('/^[a-z0-9]([a-z0-9.\-]*[a-z0-9])?$/', $dominio) && str_contains($dominio, '.')
+            ? $dominio
+            : '';
     }
 
     /**
@@ -270,16 +462,35 @@ final class Correo
                 . 'código de acceso es lo único que lo identifica.',
                 'Cambia el modo a «Servidor SMTP» y completa los datos de abajo.');
         } elseif ($modo === 'php') {
-            $anotar('warn', 'Se está usando la función mail() del servidor',
-                'Entrega al servidor de correo local de este Plesk. Si el buzón del dominio está '
-                . 'en Google Workspace o en Microsoft 365 —como narino.gov.co—, los mensajes salen '
-                . 'sin SPF ni DKIM válidos y acaban en no deseado, o rechazados.',
-                'Usa «Servidor SMTP» con la cuenta institucional.');
             if (!function_exists('mail')) {
                 $anotar('fail', 'La función mail() está desactivada',
                     'Este PHP tiene mail() en disable_functions, así que el modo actual no puede '
                     . 'enviar absolutamente nada.',
                     'Cambia a «Servidor SMTP».');
+            } else {
+                $anotar('ok', 'Envío por la función mail() del servidor',
+                    'Entrega al servidor de correo local, que es por donde salen los mensajes de '
+                    . 'WordPress en esta misma máquina. Funciona sin depender de que el proveedor '
+                    . 'deje salir por el puerto 587.');
+            }
+
+            // Lo que decide si llega a la bandeja o a no deseado es de quién
+            // dice venir el mensaje, no cómo se envía.
+            $dominioRemitente = self::dominioDe($remitente);
+            $dominioServidor = self::dominioDe('x@' . (string) ($_SERVER['SERVER_NAME'] ?? ''));
+
+            if ($dominioRemitente !== '' && $dominioServidor !== '' && $dominioRemitente !== $dominioServidor) {
+                $anotar('warn', 'El remitente es de un dominio que este servidor no gestiona',
+                    'Los mensajes dirán venir de «' . $dominioRemitente . '» y saldrán desde '
+                    . '«' . $dominioServidor . '». Si el correo de ' . $dominioRemitente . ' está '
+                    . 'en Google Workspace, su registro SPF solo autoriza a Google, así que este '
+                    . 'servidor no está autorizado a enviar en su nombre: el mensaje sale, pero '
+                    . 'llega a no deseado o lo rechazan.',
+                    'Dos salidas. La buena: usar «Servidor SMTP» con la cuenta institucional. La '
+                    . 'práctica, si el proveedor no deja salir por SMTP: poner como remitente una '
+                    . 'dirección del subdominio que sí gestiona este Plesk —por ejemplo '
+                    . 'no-responder@' . $dominioServidor . '— y crear ese buzón en Plesk → Correo, '
+                    . 'que así el mensaje sale con SPF y DKIM válidos.');
             }
         } else {
             $anotar('ok', 'Envío por servidor SMTP',
@@ -512,6 +723,30 @@ final class Correo
             $agujas,
             static fn(string $a): bool => str_contains($m, $a)
         );
+
+        // --- «Network is unreachable»: no hay ruta, y casi siempre es IPv6 ---
+        //
+        // Se mira antes que nada porque es el fallo que peor se interpreta. No
+        // es un cortafuegos —esos dan «Connection refused» o se quedan
+        // colgados— sino que el sistema no sabe por dónde salir. Al aparecer
+        // igual en el 587 y en el 465, parece que el proveedor lo bloquea todo,
+        // y se piden aperturas de puerto que ya estaban abiertas.
+        if ($contiene('network is unreachable', 'unreachable', 'no route to host')) {
+            $pistas[] = 'El sistema no encontró ruta hasta el servidor de correo. Esto no es un '
+                . 'puerto cerrado: un cortafuegos responde «Connection refused» o deja la conexión '
+                . 'colgada hasta agotar la espera.';
+            $pistas[] = 'La causa habitual es IPv6: smtp.gmail.com publica dirección IPv4 e IPv6, '
+                . 'y si el servidor resuelve la IPv6 pero no tiene ruta de salida por ahí, el '
+                . 'intento falla al instante. La plataforma ya prueba IPv4 primero; si aun así '
+                . 'falla, activa «Usar solo IPv4» en esta misma pantalla.';
+            $pistas[] = 'Usa «Probar la salida de red», aquí abajo: dice si hay ruta por IPv4, por '
+                . 'IPv6, y por qué puertos. Con eso se sabe si hay que pedirle algo al proveedor o '
+                . 'no.';
+            $pistas[] = 'Si de verdad no hay ninguna salida SMTP, el modo «Función mail() del '
+                . 'servidor» entrega por el correo local del propio servidor, que es por donde '
+                . 'salen los mensajes de WordPress en esta misma máquina.';
+            return $pistas;
+        }
 
         // --- Antes de llegar a hablar SMTP ---
         if ($contiene('connection refused', 'conexión', 'no se pudo abrir', 'timed out', 'no respondió')) {

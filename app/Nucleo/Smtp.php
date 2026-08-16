@@ -48,6 +48,7 @@ final class Smtp
         private string $clave = '',
         private int $espera = 15,
         private bool $verificarCertificado = true,
+        private bool $soloIpv4 = false,
     ) {
     }
 
@@ -155,34 +156,99 @@ final class Smtp
        La conversación
        ===================================================================== */
 
+    /**
+     * Las direcciones a las que intentar la conexión, en orden.
+     *
+     * IPv4 primero, y esto no es un detalle de estilo.
+     *
+     * smtp.gmail.com publica registros A y AAAA. Dejando que PHP elija, en un
+     * servidor con DNS que devuelve IPv6 pero sin ruta IPv6 de salida —lo
+     * normal en un VPS al que nadie le configuró IPv6— el intento falla al
+     * instante con «Network is unreachable», que no es un cortafuegos ni un
+     * puerto cerrado: es que no hay por dónde salir. Y como el mensaje aparece
+     * igual en el 587 y en el 465, parece que el proveedor lo bloquea todo,
+     * cuando por IPv4 la conexión funciona perfectamente.
+     *
+     * Probando primero IPv4 y dejando IPv6 de reserva, el caso habitual se
+     * arregla solo y el poco común —una red que solo tiene IPv6— sigue
+     * funcionando. Cada intento queda anotado, así que la pantalla enseña cuál
+     * salió y cuál no.
+     *
+     * @return array<int, string>
+     */
+    private function direcciones(): array
+    {
+        if (filter_var($this->host, FILTER_VALIDATE_IP) !== false) {
+            return [$this->host];
+        }
+
+        $v4 = @gethostbynamel($this->host) ?: [];
+
+        $v6 = [];
+        if (!$this->soloIpv4) {
+            foreach (@dns_get_record($this->host, DNS_AAAA) ?: [] as $registro) {
+                if (!empty($registro['ipv6'])) {
+                    $v6[] = (string) $registro['ipv6'];
+                }
+            }
+        }
+
+        $todas = array_merge($v4, $v6);
+
+        // Si el DNS no dijo nada, se intenta por nombre y que PHP resuelva: es
+        // lo que se hacía siempre, y en un servidor sin resolución completa
+        // —o con /etc/hosts— puede ser lo único que funcione.
+        return $todas !== [] ? $todas : [$this->host];
+    }
+
     private function abrir(): bool
     {
-        $destino = ($this->seguridad === 'ssl' ? 'ssl://' : 'tcp://') . $this->host . ':' . $this->puerto;
-
         $contexto = stream_context_create(['ssl' => [
             'verify_peer'       => $this->verificarCertificado,
             'verify_peer_name'  => $this->verificarCertificado,
             'allow_self_signed' => !$this->verificarCertificado,
             'SNI_enabled'       => true,
+            // Siempre el nombre y nunca la dirección: el certificado de Google
+            // dice «smtp.gmail.com», no una IP, y conectando por dirección la
+            // verificación fallaría sin este dato.
             'peer_name'         => $this->host,
         ]]);
 
-        $numero = 0;
-        $texto = '';
-        $this->anotar('cliente', 'conectando a ' . $destino);
+        $conexion = false;
+        $ultimoTexto = '';
+        $direcciones = $this->direcciones();
 
-        $conexion = @stream_socket_client(
-            $destino,
-            $numero,
-            $texto,
-            $this->espera,
-            STREAM_CLIENT_CONNECT,
-            $contexto
-        );
+        foreach ($direcciones as $indice => $direccion) {
+            // Una dirección IPv6 va entre corchetes dentro de la URL.
+            $literal = str_contains($direccion, ':') ? '[' . $direccion . ']' : $direccion;
+            $destino = ($this->seguridad === 'ssl' ? 'ssl://' : 'tcp://') . $literal . ':' . $this->puerto;
+
+            $rotulo = $direccion === $this->host ? '' : ' (' . $this->host . ')';
+            $this->anotar('cliente', 'conectando a ' . $destino . $rotulo);
+
+            $numero = 0;
+            $texto = '';
+            $conexion = @stream_socket_client(
+                $destino,
+                $numero,
+                $texto,
+                $this->espera,
+                STREAM_CLIENT_CONNECT,
+                $contexto
+            );
+
+            if (is_resource($conexion)) {
+                break;
+            }
+
+            $ultimoTexto = $texto !== '' ? $texto : 'No se pudo abrir la conexión.';
+            $quedan = count($direcciones) - $indice - 1;
+            $this->anotar('servidor', 'ERROR DE CONEXIÓN: ' . $ultimoTexto
+                . ($quedan > 0 ? ' — se prueba la siguiente dirección' : ''));
+        }
 
         if (!is_resource($conexion)) {
-            $this->error = $texto !== '' ? $texto : 'No se pudo abrir la conexión.';
-            $this->anotar('servidor', 'ERROR DE CONEXIÓN: ' . $this->error);
+            $this->error = $ultimoTexto !== '' ? $ultimoTexto : 'No se pudo abrir la conexión.';
             return false;
         }
 
