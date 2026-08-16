@@ -41,6 +41,22 @@ final class Bd
             'prefijo'  => Config::obtener('bd_prefijo', 'evt_'),
         ];
 
+        // Sin nombre de base no hay nada que intentar, y hay que decirlo así.
+        //
+        // Intentándolo igual, PDO se conecta con usuario vacío y contraseña
+        // vacía y MySQL responde «Access denied for user ''@'localhost'». Ese
+        // mensaje manda a quien lo lee a revisar permisos de MySQL durante
+        // media hora, cuando lo que pasa es que la aplicación todavía no tiene
+        // datos de conexión: falta config/config.php, o se llamó a la base
+        // antes de que el asistente los pidiera.
+        if ((string) $p['nombre'] === '') {
+            throw new \RuntimeException(
+                'La aplicación todavía no tiene datos de conexión a la base de datos. '
+                . 'Si estás instalando, complétalos en el paso 2 del asistente; si la plataforma '
+                . 'ya funcionaba, falta config/config.php o no se puede leer.'
+            );
+        }
+
         $dsn = sprintf(
             'mysql:host=%s;port=%d;dbname=%s;charset=utf8mb4',
             $p['host'],

@@ -140,6 +140,12 @@ final class Navegador
         $this->cookies = [];
         $this->testigo = '';
     }
+
+    /** Deja una cookie puesta como si viniera de una visita anterior. */
+    public function plantarCookie(string $nombre, string $valor): void
+    {
+        $this->cookies[$nombre] = $valor;
+    }
 }
 
 function h1(string $html): string
@@ -296,6 +302,39 @@ foreach ([1, 2, 3, 4, 5, 6] as $paso) {
     $r = $otro->ir('/instalar?paso=' . $paso);
     comprobar("paso $paso responde 200 sin estado previo", $r['codigo'] === 200, 'código ' . $r['codigo']);
 }
+
+/* ---------------------------------------------------------------------
+   Con cookies de sesión de una instalación anterior
+   ---------------------------------------------------------------------
+   El navegador de quien ya intentó instalar guarda las cookies de sesión de
+   entonces. Si después se hace una instalación limpia —borrar
+   config/config.php y vaciar la base—, esas cookies siguen viajando.
+
+   El asistente pinta un testigo CSRF en cada formulario; el testigo preguntaba
+   por la sesión, la sesión consultaba la base, y la base no estaba configurada
+   (paso 1) o no tenía todavía la tabla «sesion» (paso 3). Resultado: 500 en el
+   asistente, y solo en ese navegador, lo que lo hacía parecer un fallo del
+   servidor. Pasó en producción, dos veces.
+   --------------------------------------------------------------------- */
+
+titulo('Con cookies de sesión de una instalación anterior');
+
+$conRestos = new Navegador($BASE);
+$conRestos->plantarCookie('evtic_admin', str_repeat('a', 64));
+$conRestos->plantarCookie('evtic_asis', str_repeat('b', 64));
+
+foreach ([1, 2, 3, 4, 5, 6] as $paso) {
+    $r = $conRestos->ir('/instalar?paso=' . $paso);
+    comprobar("paso $paso no revienta con una sesión muerta encima",
+        $r['codigo'] === 200, 'código ' . $r['codigo']);
+}
+
+$r = $conRestos->ir('/instalar/diagnostico');
+comprobar('el diagnóstico tampoco', $r['codigo'] === 200, 'código ' . $r['codigo']);
+
+$r = $conRestos->ir('/');
+comprobar('y la portada sigue redirigiendo al asistente, no a un error',
+    $r['codigo'] === 303, 'código ' . $r['codigo']);
 
 /* ---------------------------------------------------------------------
    Un fallo antes de terminar tiene que verse

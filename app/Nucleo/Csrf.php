@@ -79,6 +79,20 @@ final class Csrf
      */
     private static function atadoALaSesion(): string
     {
+        // Mientras se instala no hay a qué atarse, y preguntarlo cuesta caro.
+        //
+        // El asistente no tiene acceso ni sesiones, y la tabla que las guarda
+        // puede no existir todavía. Pero el formulario sí lleva testigo, y
+        // pintarlo llamaba a Sesion::actual(), que consulta la base. Con una
+        // cookie de sesión vieja en el navegador —de un intento anterior de
+        // instalación, que es lo normal— la consulta salía hacia una base sin
+        // configurar en el paso 1, o sin tabla «sesion» en el paso 3, y el
+        // asistente respondía 500. Solo en ese navegador, lo que lo hacía
+        // parecer un fallo del servidor.
+        if (!Config::instalado()) {
+            return '';
+        }
+
         foreach (['admin', 'asistente'] as $tipo) {
             $sesion = Sesion::actual($tipo);
             if ($sesion) {

@@ -421,6 +421,20 @@ de Apache y nginx**, y verifica que se permitan los `.htaccess`.
 **«No se pudo escribir config/config.php».**
 Permisos de `config/`. Debe ser escribible por el usuario del dominio.
 
+**«Access denied for user ''@'localhost' (using password: NO)» al entrar al asistente.**
+Corregido en esta versión; si lo ves, el servidor tiene código viejo. No era un problema de
+permisos de MySQL, por más que el mensaje lo pareciera: el usuario iba **vacío** porque la
+aplicación todavía no tenía datos de conexión. Pasaba al hacer una instalación limpia desde un
+navegador que conservaba las cookies de sesión de un intento anterior: el asistente pinta un
+testigo CSRF en cada formulario, el testigo preguntaba por la sesión, y la sesión consulta la
+base de datos —que aún no estaba configurada—. Como la cookie solo la tiene ese navegador, el
+error parecía del servidor y no se reproducía desde otro equipo.
+
+Ahora el testigo no consulta la base mientras la plataforma no esté instalada, una sesión que no
+se puede leer se trata como «no hay sesión», y conectar sin nombre de base da un mensaje que
+dice lo que pasa en vez de hablar de permisos. Si aun así te topas con algo parecido, borrar las
+cookies del sitio en el navegador es una solución inmediata.
+
 **«A thread value other than 1 is not supported by this implementation».**
 Corregido en esta versión; si lo ves, el servidor tiene código viejo. Era un `ValueError` de
 `password_hash()` en el paso 4 del asistente, al convertir la contraseña del administrador.

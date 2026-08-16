@@ -122,10 +122,40 @@ final class Sesion
             return null;
         }
 
-        $fila = Bd::fila(
-            'SELECT * FROM {sesion} WHERE id = ? AND tipo = ? AND expira_en > NOW()',
-            [hash('sha256', $enClaro), $tipo]
-        );
+        // Sin base de datos no hay sesión que buscar, porque las sesiones viven
+        // justamente ahí.
+        //
+        // No es un caso teórico. El navegador de quien instaló guarda la cookie
+        // de los intentos anteriores; si después se hace una instalación limpia
+        // —se borra config/config.php y se vacía la base—, esa cookie sigue
+        // viajando. El asistente pintaba su testigo CSRF, el testigo preguntaba
+        // por la sesión, la sesión preguntaba por la base, y la base no existía:
+        // el asistente entero respondía 500 y solo en ese navegador, lo que lo
+        // hacía parecer un fallo del servidor.
+        if ((string) Config::obtener('bd_nombre', '') === '') {
+            return null;
+        }
+
+        // Una sesión que no se puede leer es una sesión que no existe.
+        //
+        // Se atrapa a propósito y se anota. Si la tabla no está —una instalación
+        // a medias, una migración a mitad— lo correcto es tratar al visitante
+        // como anónimo y dejar que las pantallas públicas y el asistente sigan
+        // funcionando. Dejar que la excepción suba convierte cada página del
+        // sitio en un 500, incluida la que serviría para arreglarlo.
+        try {
+            $fila = Bd::fila(
+                'SELECT * FROM {sesion} WHERE id = ? AND tipo = ? AND expira_en > NOW()',
+                [hash('sha256', $enClaro), $tipo]
+            );
+        } catch (\Throwable $e) {
+            Registro::error('No se pudo consultar la sesión; se sigue como visitante anónimo', [
+                'tipo'    => $tipo,
+                'detalle' => $e->getMessage(),
+            ]);
+            return null;
+        }
+
         if (!$fila) {
             return null;
         }
