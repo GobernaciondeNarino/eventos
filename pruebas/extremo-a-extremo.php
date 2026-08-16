@@ -228,6 +228,24 @@ function tokenDe(string $html, string $tipo): string
 
 $RAIZ = dirname(__DIR__);
 
+/**
+ * Relee config/config.php desde disco.
+ *
+ * `require` a secas devuelve lo que ya cacheó la primera vez, y estas pruebas
+ * comprueban justamente que el archivo cambia entre una petición y la
+ * siguiente.
+ */
+function leerConfig(string $raiz): array
+{
+    $ruta = $raiz . '/config/config.php';
+    if (!is_file($ruta)) {
+        return [];
+    }
+    $codigo = (string) file_get_contents($ruta);
+    $datos = @eval('?>' . $codigo);
+    return is_array($datos) ? $datos : [];
+}
+
 echo "Prueba de extremo a extremo · $BASE\n";
 echo str_repeat('=', 62) . "\n";
 
@@ -1046,6 +1064,69 @@ $viejaClave->get('/admin/entrar');
 $html = $viejaClave->post('/admin/entrar',
     ['correo' => 'puerta@narino.gov.co', 'clave' => 'clave temporal del jefe']);
 comprobar('la contraseña anterior deja de servir', str_contains($html, 'incorrectos'));
+
+/* =========================================================================
+   Correo
+   -------------------------------------------------------------------------
+   La pantalla que configura con qué credencial envía la plataforma en nombre
+   de la Gobernación. Dos cosas que no pueden fallar: que solo la vea un
+   administrador, y que la contraseña de aplicación no salga nunca del
+   servidor.
+   ========================================================================= */
+titulo('Configuración de correo');
+
+// $nuevo es la sesión del operador, que ya cambió su clave más arriba.
+foreach (['/admin/correo'] as $ruta) {
+    $nuevo->get($ruta, false);
+    comprobar("un operador no entra a $ruta",
+        $nuevo->codigo !== 200,
+        'respondió ' . $nuevo->codigo);
+}
+
+$html = $admin->get('/admin/correo');
+comprobar('el administrador sí, y la pantalla carga',
+    str_contains($html, 'Modo de envío') && !str_contains($html, 'Algo salió mal'));
+comprobar('trae la revisión de la configuración', str_contains($html, 'Estado de la configuración'));
+comprobar('y la tabla de códigos de error', str_contains($html, '535-5.7.8'));
+
+$admin->post('/admin/correo', [
+    'modo_correo'                => 'smtp',
+    'correo_remitente'           => 'hosting@narino.gov.co',
+    'correo_nombre'              => 'Secretaría TIC',
+    'smtp_host'                  => 'smtp.gmail.com',
+    'smtp_puerto'                => '587',
+    'smtp_seguridad'             => 'tls',
+    'smtp_usuario'               => 'hosting@narino.gov.co',
+    'smtp_clave'                 => 'abcd efgh ijkl mnop',
+    'smtp_espera'                => '15',
+    'smtp_verificar_certificado' => '1',
+]);
+$guardado = leerConfig($RAIZ);
+comprobar('se guarda el modo SMTP', ($guardado['modo_correo'] ?? '') === 'smtp');
+comprobar('y la contraseña sin los espacios con que Google la enseña',
+    ($guardado['smtp_clave'] ?? '') === 'abcdefghijklmnop',
+    (string) ($guardado['smtp_clave'] ?? '—'));
+
+$html = $admin->get('/admin/correo');
+comprobar('la contraseña NUNCA vuelve al navegador',
+    !str_contains($html, 'abcdefghijklmnop') && !str_contains($html, 'abcd efgh'));
+comprobar('pero se avisa de que hay una guardada', str_contains($html, 'hay una guardada'));
+
+comprobar('la bitácora anota el cambio sin la contraseña',
+    (static function () use ($pdo, $BD): bool {
+        $fila = $pdo->query("SELECT detalle FROM {$BD['prefijo']}bitacora
+                              WHERE accion = 'correo_configurado'
+                              ORDER BY id DESC LIMIT 1")->fetchColumn();
+        return is_string($fila) && !str_contains($fila, 'abcdefghijklmnop');
+    })());
+
+// Un modo inventado no se acepta.
+$admin->post('/admin/correo', [
+    'modo_correo' => 'lo-que-sea', 'correo_remitente' => 'hosting@narino.gov.co',
+    'smtp_puerto' => '587', 'smtp_seguridad' => 'tls',
+], false);
+$guardado = leerConfig($RAIZ);
+comprobar('un modo de envío inventado se rechaza', ($guardado['modo_correo'] ?? '') === 'smtp');
 
 /* =========================================================================
    9a · Búsqueda por texto

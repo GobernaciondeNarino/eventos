@@ -1,0 +1,356 @@
+<?php
+/**
+ * El cliente SMTP, contra un servidor de verdad.
+ *
+ * No se simula la red: se levanta un servidor SMTP en un puerto local —incluido
+ * TLS con certificado autofirmado— y se habla con él. Es la única forma de
+ * comprobar cosas que solo se rompen sobre el cable: las respuestas de varias
+ * líneas, el punto doblado dentro del mensaje, o el segundo EHLO obligatorio
+ * después de STARTTLS.
+ *
+ * Cada escenario reproduce una respuesta que dan de verdad Google o Microsoft,
+ * y se comprueba además que la explicación que sale en pantalla sea la que
+ * corresponde. De poco sirve detectar el 535 si lo que se le enseña al
+ * administrador es «no se pudo enviar».
+ *
+ * Uso:  php pruebas/smtp.php
+ */
+declare(strict_types=1);
+
+define('EVENTOS_TIC', true);
+define('RAIZ', dirname(__DIR__));
+define('APP_VERSION', 'pruebas');
+
+spl_autoload_register(static function (string $clase): void {
+    if (!str_starts_with($clase, 'App\\')) {
+        return;
+    }
+    $archivo = RAIZ . '/app/' . str_replace('\\', '/', substr($clase, 4)) . '.php';
+    if (is_file($archivo)) {
+        require $archivo;
+    }
+});
+require RAIZ . '/app/ayudas.php';
+
+use App\Nucleo\Config;
+use App\Nucleo\Correo;
+use App\Nucleo\Smtp;
+
+Config::establecerEnMemoria(['llave_cifrado' => str_repeat('b', 64), 'depurar' => false]);
+$_SERVER['SERVER_NAME'] = 'pruebas.narino.gov.co';
+
+$ok = 0;
+$fallos = [];
+
+function comprobar(string $nombre, bool $condicion, string $extra = ''): void
+{
+    global $ok, $fallos;
+    if ($condicion) {
+        $ok++;
+        echo "  ✓ $nombre\n";
+    } else {
+        $fallos[] = $nombre;
+        echo "  ✗ $nombre" . ($extra !== '' ? "  → " . mb_substr($extra, 0, 300) : '') . "\n";
+    }
+}
+
+function titulo(string $texto): void
+{
+    echo "\n$texto\n";
+}
+
+/* =====================================================================
+   Certificado autofirmado para los escenarios con TLS
+   ===================================================================== */
+
+$certificado = sys_get_temp_dir() . '/smtp-pruebas-' . getmypid() . '.pem';
+exec('openssl req -x509 -newkey rsa:2048 -keyout ' . escapeshellarg($certificado)
+    . ' -out ' . escapeshellarg($certificado) . ' -days 2 -nodes -subj "/CN=127.0.0.1" 2>/dev/null',
+    $salidaCert, $estadoCert);
+$hayTls = $estadoCert === 0 && is_file($certificado);
+register_shutdown_function(static function () use ($certificado): void {
+    @unlink($certificado);
+});
+
+/* =====================================================================
+   Arrancar y parar el servidor de mentira
+   ===================================================================== */
+
+$puertoLibre = static function (): int {
+    $s = stream_socket_server('tcp://127.0.0.1:0', $n, $t);
+    $nombre = stream_socket_get_name($s, false);
+    fclose($s);
+    return (int) substr((string) $nombre, strrpos((string) $nombre, ':') + 1);
+};
+
+/** @return array{0: resource, 1: array, 2: int} proceso, tuberías y puerto */
+$levantar = static function (string $escenario) use ($puertoLibre, $certificado): array {
+    $puerto = $puertoLibre();
+    $orden = escapeshellcmd(PHP_BINARY) . ' ' . escapeshellarg(RAIZ . '/pruebas/apoyo/servidor-smtp.php')
+        . ' ' . $puerto . ' ' . escapeshellarg($escenario) . ' ' . escapeshellarg($certificado);
+
+    $tuberias = [];
+    $proceso = proc_open($orden, [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $tuberias);
+    if (!is_resource($proceso)) {
+        throw new RuntimeException('No se pudo lanzar el servidor de prueba.');
+    }
+
+    // Esperar a que diga «listo». Sin esto la prueba corre antes de que el
+    // servidor esté escuchando y falla por una carrera, no por el código.
+    stream_set_blocking($tuberias[1], false);
+    $espera = microtime(true) + 10;
+    $anuncio = '';
+    while (microtime(true) < $espera && !str_contains($anuncio, 'listo')) {
+        $anuncio .= (string) fread($tuberias[1], 64);
+        usleep(20000);
+    }
+
+    return [$proceso, $tuberias, $puerto];
+};
+
+$bajar = static function (array $lanzado): void {
+    [$proceso, $tuberias] = $lanzado;
+    foreach ($tuberias as $tuberia) {
+        if (is_resource($tuberia)) {
+            fclose($tuberia);
+        }
+    }
+    if (is_resource($proceso)) {
+        proc_terminate($proceso);
+        proc_close($proceso);
+    }
+};
+
+echo "\nCliente SMTP\n";
+echo str_repeat('─', 62) . "\n";
+echo '  · TLS en las pruebas: ' . ($hayTls ? 'sí, con certificado autofirmado' : 'no (falta openssl en consola)') . "\n";
+
+/* =====================================================================
+   Envío correcto
+   ===================================================================== */
+
+titulo('Un envío que sale bien');
+
+$lanzado = $levantar('sin-starttls');   // ofrece AUTH sin exigir cifrado
+[$proceso, $tuberias, $puerto] = $lanzado;
+
+// Dieciséis letras, como las que genera Google, pero inventadas. Una
+// contraseña de verdad no entra en el repositorio ni siquiera como dato de
+// prueba: lo que se sube a un repositorio se queda ahí para siempre.
+$claveDeMentira = 'abcdefghijklmnop';
+
+$cliente = new Smtp('127.0.0.1', $puerto, 'ninguna', 'hosting@narino.gov.co', $claveDeMentira, 10, false);
+$enviado = $cliente->enviar(
+    'hosting@narino.gov.co',
+    'alguien@narino.gov.co',
+    "From: Eventos TIC <hosting@narino.gov.co>\r\nSubject: Prueba",
+    "Hola.\n.punto al principio\nFin."
+);
+comprobar('el mensaje se entrega', $enviado, $cliente->error());
+comprobar('sin código de error', $cliente->codigo() === '', $cliente->codigo());
+
+$transcripcion = $cliente->transcripcion();
+comprobar('la transcripción registra el saludo', str_contains($transcripcion, '220 mentira.example'));
+comprobar('y el EHLO', str_contains($transcripcion, 'EHLO pruebas.narino.gov.co'));
+comprobar('la contraseña NO aparece en la transcripción',
+    !str_contains($transcripcion, $claveDeMentira)
+    && !str_contains($transcripcion, base64_encode($claveDeMentira)),
+    $transcripcion);
+comprobar('en su lugar se anota que iba ahí',
+    str_contains($transcripcion, '[contraseña en base64]'), $transcripcion);
+
+$recibido = @file_get_contents(sys_get_temp_dir() . '/smtp-recibido-' . $puerto . '.txt');
+comprobar('el servidor recibió el mensaje', is_string($recibido) && $recibido !== '');
+comprobar('con la cabecera de asunto', is_string($recibido) && str_contains($recibido, 'Subject: Prueba'));
+comprobar('la línea que empieza por punto llegó entera',
+    is_string($recibido) && str_contains($recibido, "\n.punto al principio"),
+    'el cliente tiene que doblar ese punto; si no, el servidor lo lee como fin de mensaje');
+comprobar('y el mensaje no se cortó ahí',
+    is_string($recibido) && str_contains($recibido, 'Fin.'),
+    'sin doblar el punto, todo lo que va detrás se pierde');
+@unlink(sys_get_temp_dir() . '/smtp-recibido-' . $puerto . '.txt');
+$bajar($lanzado);
+
+/* =====================================================================
+   Credenciales rechazadas: el caso más frecuente
+   ===================================================================== */
+
+titulo('Contraseña rechazada (535-5.7.8)');
+
+$lanzado = $levantar('auth-535');
+[$proceso, $tuberias, $puerto] = $lanzado;
+
+$cliente = new Smtp('127.0.0.1', $puerto, 'ninguna', 'hosting@narino.gov.co', 'la-normal-no-vale', 10, false);
+comprobar('no se autentica', !$cliente->comprobar());
+comprobar('el código es 535', $cliente->codigo() === '535', $cliente->codigo());
+comprobar('el error trae el texto del servidor',
+    str_contains($cliente->error(), 'Username and Password not accepted'), $cliente->error());
+
+$pistas = implode(' ', Correo::explicar($cliente->codigo(), $cliente->error()));
+comprobar('la explicación habla de la contraseña de aplicación',
+    str_contains($pistas, 'contraseña de aplicación'), $pistas);
+comprobar('y de que el usuario lleve el dominio',
+    str_contains($pistas, 'dirección completa'), $pistas);
+comprobar('y avisa de que Workspace puede tenerlas bloqueadas',
+    str_contains($pistas, 'consola de administración'), $pistas);
+$bajar($lanzado);
+
+/* =====================================================================
+   Google pidiendo contraseña de aplicación
+   ===================================================================== */
+
+titulo('Google pide contraseña de aplicación (534-5.7.9)');
+
+$lanzado = $levantar('auth-534');
+[$proceso, $tuberias, $puerto] = $lanzado;
+
+$cliente = new Smtp('127.0.0.1', $puerto, 'ninguna', 'hosting@narino.gov.co', 'x', 10, false);
+comprobar('falla', !$cliente->comprobar());
+comprobar('el código es 534', $cliente->codigo() === '534', $cliente->codigo());
+comprobar('la respuesta de varias líneas se lee entera',
+    str_contains($cliente->transcripcion(), 'InvalidSecondFactor'), $cliente->transcripcion());
+
+$pistas = implode(' ', Correo::explicar($cliente->codigo(), $cliente->error()));
+comprobar('la explicación menciona la verificación en dos pasos',
+    str_contains($pistas, 'verificación en dos pasos'), $pistas);
+$bajar($lanzado);
+
+/* =====================================================================
+   Remitente no permitido
+   ===================================================================== */
+
+titulo('Remitente no permitido (550-5.7.1)');
+
+$lanzado = $levantar('relay-550');
+[$proceso, $tuberias, $puerto] = $lanzado;
+
+$cliente = new Smtp('127.0.0.1', $puerto, 'ninguna', 'hosting@narino.gov.co', 'x', 10, false);
+$enviado = $cliente->enviar('otro@ajeno.example', 'alguien@narino.gov.co', 'Subject: x', 'cuerpo');
+comprobar('no se envía', !$enviado);
+comprobar('el código es 550', $cliente->codigo() === '550', $cliente->codigo());
+
+$pistas = implode(' ', Correo::explicar($cliente->codigo(), $cliente->error()));
+comprobar('la explicación habla del alias verificado',
+    str_contains($pistas, 'alias verificado'), $pistas);
+$bajar($lanzado);
+
+/* =====================================================================
+   STARTTLS pedido pero no ofrecido
+   ===================================================================== */
+
+titulo('Se pide STARTTLS y el servidor no lo ofrece');
+
+$lanzado = $levantar('sin-starttls');
+[$proceso, $tuberias, $puerto] = $lanzado;
+
+$cliente = new Smtp('127.0.0.1', $puerto, 'tls', 'hosting@narino.gov.co', 'x', 10, false);
+comprobar('no se conecta', !$cliente->comprobar());
+comprobar('y lo dice con las dos alternativas de puerto',
+    str_contains($cliente->error(), '465') && str_contains($cliente->error(), '587'),
+    $cliente->error());
+$bajar($lanzado);
+
+/* =====================================================================
+   STARTTLS de verdad
+   ===================================================================== */
+
+if ($hayTls) {
+    titulo('STARTTLS con cifrado real');
+
+    $lanzado = $levantar('starttls');
+    [$proceso, $tuberias, $puerto] = $lanzado;
+
+    $cliente = new Smtp('127.0.0.1', $puerto, 'tls', 'hosting@narino.gov.co', 'clave', 10, false);
+    comprobar('se conecta, cifra y se autentica', $cliente->comprobar(), $cliente->error());
+
+    $t = $cliente->transcripcion();
+    comprobar('el canal quedó cifrado', str_contains($t, '[canal cifrado con TLS]'), $t);
+    comprobar('se vuelve a saludar después de cifrar',
+        substr_count($t, 'EHLO pruebas.narino.gov.co') === 2,
+        'sin el segundo EHLO, AUTH no está anunciado y la autenticación falla');
+    $bajar($lanzado);
+
+    titulo('Un certificado que no se puede verificar');
+
+    $lanzado = $levantar('starttls');
+    [$proceso, $tuberias, $puerto] = $lanzado;
+
+    // Ahora exigiendo verificación: el certificado es autofirmado, debe fallar.
+    $cliente = new Smtp('127.0.0.1', $puerto, 'tls', 'hosting@narino.gov.co', 'clave', 10, true);
+    comprobar('con verificación activa, se rechaza', !$cliente->comprobar());
+    $pistas = implode(' ', Correo::explicar('', $cliente->error()));
+    comprobar('y se explica que se puede desactivar para un servidor interno',
+        str_contains($pistas, 'certificado propio'), $pistas);
+    $bajar($lanzado);
+
+    titulo('SSL directo, como el puerto 465');
+
+    $lanzado = $levantar('ssl');
+    [$proceso, $tuberias, $puerto] = $lanzado;
+
+    $cliente = new Smtp('127.0.0.1', $puerto, 'ssl', 'hosting@narino.gov.co', 'clave', 10, false);
+    comprobar('se conecta cifrando desde el primer byte', $cliente->comprobar(), $cliente->error());
+    $bajar($lanzado);
+}
+
+/* =====================================================================
+   Un servidor que no responde
+   ===================================================================== */
+
+titulo('Un servidor que se queda callado');
+
+$lanzado = $levantar('mudo');
+[$proceso, $tuberias, $puerto] = $lanzado;
+
+$comienzo = microtime(true);
+$cliente = new Smtp('127.0.0.1', $puerto, 'ninguna', '', '', 2, false);
+comprobar('falla en vez de colgarse', !$cliente->comprobar());
+$tardanza = microtime(true) - $comienzo;
+comprobar('respeta la espera configurada', $tardanza < 8, sprintf('tardó %.1f s', $tardanza));
+comprobar('y dice que no respondió',
+    str_contains($cliente->error(), 'no respondió') || str_contains($cliente->error(), 'cerró'),
+    $cliente->error());
+$bajar($lanzado);
+
+/* =====================================================================
+   Puerto cerrado
+   ===================================================================== */
+
+titulo('Puerto cerrado');
+
+$cliente = new Smtp('127.0.0.1', $puertoLibre(), 'ninguna', '', '', 3, false);
+comprobar('no se conecta', !$cliente->comprobar());
+$pistas = implode(' ', Correo::explicar('', $cliente->error()));
+comprobar('la explicación sugiere probar el otro puerto',
+    str_contains($pistas, '465') || str_contains($pistas, '587'), $pistas);
+comprobar('y menciona el cortafuegos de salida',
+    str_contains($pistas, 'cortafuegos') || str_contains($pistas, 'cerrada'), $pistas);
+
+/* =====================================================================
+   La explicación siempre dice algo útil
+   ===================================================================== */
+
+titulo('Nunca se responde con un «no se pudo enviar» a secas');
+
+foreach ([
+    ['535', 'Username and Password not accepted'],
+    ['534', '5.7.9 Application-specific password required'],
+    ['', '5.7.14 Please log in via your web browser'],
+    ['550', '5.4.5 Daily user sending limit exceeded'],
+    ['421', '4.7.0 Try again later'],
+    ['', 'Connection refused'],
+    ['', 'un fallo que nadie ha visto nunca'],
+] as [$codigo, $mensaje]) {
+    $pistas = Correo::explicar($codigo, $mensaje);
+    comprobar('«' . mb_substr($mensaje, 0, 42) . '…» tiene explicación', count($pistas) >= 2);
+}
+
+$pistas = implode(' ', Correo::explicar('', 'lo que sea'));
+comprobar('y todas recuerdan lo del SPF del dominio', str_contains($pistas, 'SPF'), $pistas);
+
+echo "\n" . str_repeat('─', 62) . "\n";
+printf("%d comprobaciones correctas · %d fallidas\n\n", $ok, count($fallos));
+foreach ($fallos as $f) {
+    echo "  ✗ $f\n";
+}
+exit($fallos ? 1 : 0);

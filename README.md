@@ -233,6 +233,10 @@ php pruebas/instalacion.php
 # que solo admite un hilo.
 php pruebas/claves.php
 
+# El cliente SMTP contra un servidor de verdad, con TLS y certificado
+# autofirmado. Reproduce las respuestas de Google: 535, 534, 550, STARTTLS.
+php pruebas/smtp.php
+
 # El generador de QR
 php pruebas/qr-php-contra-js.php          # servidor contra referencia JS
 python3 pruebas/qr-contra-referencia.py   # JS contra la librería de Python

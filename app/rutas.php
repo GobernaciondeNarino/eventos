@@ -126,6 +126,12 @@ $enrutador->post('/admin/eventos/activar', [Admin::class, 'activarEvento'], 'adm
 $enrutador->get('/admin/identidad', [Admin::class, 'identidad'], 'admin:administrador');
 $enrutador->post('/admin/identidad', [Admin::class, 'guardarIdentidad'], 'admin:administrador');
 
+// Correo. Solo administrador: aquí se ve y se cambia la credencial con la que
+// la plataforma envía en nombre de la Gobernación.
+$enrutador->get('/admin/correo', [Admin::class, 'correo'], 'admin:administrador');
+$enrutador->post('/admin/correo', [Admin::class, 'guardarCorreo'], 'admin:administrador');
+$enrutador->post('/admin/correo/probar', [Admin::class, 'probarCorreo'], 'admin:administrador');
+
 /* =========================================================================
    Archivos subidos
    -------------------------------------------------------------------------

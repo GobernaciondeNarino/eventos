@@ -485,6 +485,7 @@ conviene decirlo con claridad en la pantalla de privacidad.
 php pruebas/extremo-a-extremo.php      # 189 comprobaciones, 27 de seguridad
 php pruebas/instalacion.php            # el asistente, y qué se ve cuando falla
 php pruebas/claves.php                 # parámetros de Argon2id y rehash
+php pruebas/smtp.php                   # el cliente SMTP contra un servidor real
 php pruebas/totp.php                   # segundo factor contra el RFC 6238
 php pruebas/correo.php                 # formato MIME e inyección de cabeceras
 php pruebas/svg-saneado.php            # logos SVG con código dentro
@@ -523,6 +524,8 @@ Lo que comprueban las de seguridad, concretamente:
 - La cuenta del paso 4 queda en la tabla con su hash, y con ella se entra al panel.
 - El hash de contraseñas pide un solo hilo, que es lo que admiten las dos compilaciones
   de Argon2 que trae PHP.
+- La contraseña del correo no vuelve al navegador, no entra en la transcripción SMTP que se
+  muestra en pantalla, y no queda en la bitácora.
 
 ---
 

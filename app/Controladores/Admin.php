@@ -13,10 +13,14 @@ use App\Modelos\Usuario;
 use App\Nucleo\App;
 use App\Nucleo\Bd;
 use App\Nucleo\Bitacora;
+use App\Nucleo\Config;
+use App\Nucleo\Correo;
 use App\Nucleo\Guardia;
 use App\Nucleo\Peticion;
 use App\Nucleo\Qr;
+use App\Nucleo\Limite;
 use App\Nucleo\Respuesta;
+use App\Nucleo\Sesion;
 use App\Nucleo\Tema;
 use App\Nucleo\Url;
 
@@ -797,5 +801,161 @@ final class Admin
             default => imagepng($imagen, $destino, 9),
         };
         imagedestroy($imagen);
+    }
+
+    /* =====================================================================
+       Correo
+       -------------------------------------------------------------------------
+       Sin correo, la plataforma pierde la mitad de lo que hace: el asistente
+       que cierra sesión ya no puede volver a entrar —el código de acceso es lo
+       único que lo identifica— y los carnets no salen de la pantalla en que se
+       generaron. Por eso esta pantalla no se limita a guardar unos campos:
+       revisa la configuración, prueba contra el servidor de verdad y explica
+       cada código de error con el arreglo concreto.
+       ===================================================================== */
+
+    public function correo(Peticion $peticion): void
+    {
+        Respuesta::vista('admin/correo', [
+            'titulo'    => 'Correo',
+            'pantalla'  => 'admin-correo',
+            'ajustes'   => $this->ajustesDeCorreo(),
+            'revision'  => Correo::revision(),
+            'prueba'    => Sesion::datos('admin')['prueba_correo'] ?? null,
+            'sugerido'  => (string) (Guardia::usuarioActual()['correo'] ?? ''),
+        ]);
+
+        // El resultado de la última prueba se enseña una sola vez.
+        $this->olvidarPrueba();
+    }
+
+    public function guardarCorreo(Peticion $peticion): void
+    {
+        $modo = $peticion->campo('modo_correo', 'php');
+        if (!in_array($modo, ['smtp', 'php', 'registro'], true)) {
+            Respuesta::redirigir('/admin/correo', 'Ese modo de envío no existe.', 'warn');
+        }
+
+        $remitente = mb_strtolower(trim($peticion->campo('correo_remitente')));
+        if (!filter_var($remitente, FILTER_VALIDATE_EMAIL)) {
+            Respuesta::redirigir('/admin/correo', 'El remitente no es una dirección válida.', 'warn');
+        }
+
+        $puerto = (int) $peticion->campo('smtp_puerto', '587');
+        if ($puerto < 1 || $puerto > 65535) {
+            Respuesta::redirigir('/admin/correo', 'El puerto debe estar entre 1 y 65535.', 'warn');
+        }
+
+        $seguridad = $peticion->campo('smtp_seguridad', 'tls');
+        if (!in_array($seguridad, ['tls', 'ssl', 'ninguna'], true)) {
+            Respuesta::redirigir('/admin/correo', 'Esa opción de seguridad no existe.', 'warn');
+        }
+
+        // La contraseña solo se toca si escribieron una nueva. El formulario
+        // nunca la devuelve al navegador, así que un campo vacío significa
+        // «déjala como está», no «bórrala».
+        $clave = $peticion->campoCrudo('smtp_clave');
+        $claveActual = (string) Config::obtener('smtp_clave', '');
+        if (trim($clave) === '') {
+            $clave = $peticion->marcado('borrar_clave') ? '' : $claveActual;
+        } else {
+            // Google enseña la contraseña de aplicación en cuatro grupos de
+            // cuatro letras. Copiarla con los espacios es lo natural y lo que
+            // hace todo el mundo; el servidor no los admite.
+            $clave = (string) preg_replace('/\s+/', '', $clave);
+        }
+
+        $nuevos = [
+            'modo_correo'                => $modo,
+            'correo_remitente'           => $remitente,
+            'correo_nombre'              => mb_substr(trim($peticion->campo('correo_nombre')), 0, 120),
+            'smtp_host'                  => mb_substr(trim($peticion->campo('smtp_host')), 0, 190),
+            'smtp_puerto'                => $puerto,
+            'smtp_seguridad'             => $seguridad,
+            'smtp_usuario'               => mb_substr(trim($peticion->campo('smtp_usuario')), 0, 190),
+            'smtp_clave'                 => $clave,
+            'smtp_espera'                => max(5, min(60, (int) $peticion->campo('smtp_espera', '15'))),
+            'smtp_verificar_certificado' => $peticion->marcado('smtp_verificar_certificado'),
+        ];
+
+        if (!Config::escribir($nuevos + Config::todo())) {
+            Respuesta::redirigir('/admin/correo',
+                'No se pudo escribir config/config.php. Revisa los permisos de la carpeta config/.', 'warn');
+        }
+        Config::establecerEnMemoria($nuevos);
+
+        // En la bitácora no entra la contraseña, solo que se cambió.
+        Bitacora::registrar('correo_configurado', 'sistema', null, [
+            'modo'        => $modo,
+            'host'        => $nuevos['smtp_host'],
+            'puerto'      => $puerto,
+            'seguridad'   => $seguridad,
+            'usuario'     => $nuevos['smtp_usuario'],
+            'clave_nueva' => trim($peticion->campoCrudo('smtp_clave')) !== '',
+        ]);
+
+        Respuesta::redirigir('/admin/correo', 'Configuración de correo guardada.', 'ok');
+    }
+
+    public function probarCorreo(Peticion $peticion): void
+    {
+        $destinatario = mb_strtolower(trim($peticion->campo('destinatario')));
+        if ($destinatario !== '' && !filter_var($destinatario, FILTER_VALIDATE_EMAIL)) {
+            Respuesta::redirigir('/admin/correo', 'La dirección de prueba no es válida.', 'warn');
+        }
+
+        // Cada prueba abre una conexión y espera hasta quince segundos. Sin
+        // límite, el botón es una forma cómoda de tener el servidor ocupado.
+        $quien = (string) (Guardia::usuarioActual()['id'] ?? '0');
+        $espera = Limite::bloqueado('probar_correo', $quien);
+        if ($espera > 0) {
+            Respuesta::redirigir('/admin/correo',
+                'Demasiadas pruebas seguidas. Vuelve a intentarlo en ' . ceil($espera / 60) . ' min.', 'warn');
+        }
+        Limite::registrar('probar_correo', $quien);
+
+        $resultado = Correo::probar($destinatario);
+
+        Bitacora::registrar('correo_probado', 'sistema', null, [
+            'destinatario' => $destinatario !== '' ? $destinatario : '(solo conexión)',
+            'ok'           => $resultado['ok'],
+            'codigo'       => $resultado['codigo'],
+        ]);
+
+        // Va a la sesión y no a la URL: la transcripción es larga y además
+        // lleva nombres de servidor que no tienen por qué quedar en el historial
+        // del navegador ni en los registros del proxy.
+        Sesion::guardarDatos('admin', ['prueba_correo' => $resultado] + Sesion::datos('admin'));
+
+        Respuesta::redirigir('/admin/correo',
+            $resultado['ok'] ? 'Prueba correcta.' : 'La prueba falló: mira el detalle.',
+            $resultado['ok'] ? 'ok' : 'warn');
+    }
+
+    /** Lo que la pantalla necesita, sin la contraseña. */
+    private function ajustesDeCorreo(): array
+    {
+        return [
+            'modo'         => (string) Config::obtener('modo_correo', 'php'),
+            'remitente'    => (string) Config::obtener('correo_remitente', ''),
+            'nombre'       => (string) Config::obtener('correo_nombre', ''),
+            'host'         => (string) Config::obtener('smtp_host', ''),
+            'puerto'       => (int) Config::obtener('smtp_puerto', 587),
+            'seguridad'    => (string) Config::obtener('smtp_seguridad', 'tls'),
+            'usuario'      => (string) Config::obtener('smtp_usuario', ''),
+            // Solo si hay contraseña guardada, nunca cuál.
+            'hayClave'     => (string) Config::obtener('smtp_clave', '') !== '',
+            'espera'       => (int) Config::obtener('smtp_espera', 15),
+            'verificar'    => (bool) Config::obtener('smtp_verificar_certificado', true),
+        ];
+    }
+
+    private function olvidarPrueba(): void
+    {
+        $datos = Sesion::datos('admin');
+        if (isset($datos['prueba_correo'])) {
+            unset($datos['prueba_correo']);
+            Sesion::guardarDatos('admin', $datos);
+        }
     }
 }

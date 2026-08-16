@@ -47,6 +47,11 @@ final class Limite
         'token_qr'         => [30, 300, 900],    // enumeración de credenciales
         'preregistro_ip'   => [60, 3600, 900],   // altas masivas; toda una sede comparte IP
         'contacto'         => [60, 3600, 600],   // intercambios, por persona
+        // Cada prueba de correo abre una conexión y puede esperar quince
+        // segundos. Sin tope, el botón es una forma cómoda de tener ocupado al
+        // servidor; y probar contra Google muchas veces seguidas hace que
+        // Google bloquee la cuenta por su cuenta, que es peor.
+        'probar_correo'    => [10, 300, 300],    // por organizador
     ];
 
     /** ¿Está bloqueada la combinación acción + clave? Devuelve segundos restantes. */
