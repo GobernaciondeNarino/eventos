@@ -4,6 +4,8 @@
  *
  * @var array $ajustes @var array $revision @var array|null $prueba @var array|null $red
  * @var array $proveedores @var string $sugerido
+ * @var array $metodos @var array $catalogo @var string $preferido
+ * @var array $revisionAuth @var array $mensajeria @var array $auth
  */
 defined('EVENTOS_TIC') || exit;
 
@@ -12,6 +14,32 @@ $esSmtp = $modo === 'smtp';
 
 $fallos = array_values(array_filter($revision, static fn(array $r): bool => $r['estado'] === 'fail'));
 $avisos = array_values(array_filter($revision, static fn(array $r): bool => $r['estado'] === 'warn'));
+
+/**
+ * ¿El servidor de correo es de esta misma máquina o del dominio?
+ *
+ * Importa para el rótulo de la contraseña. Con Gmail o Microsoft hace falta una
+ * «contraseña de aplicación», que es un concepto suyo; con un buzón del propio
+ * Plesk no existe tal cosa: es sencillamente la contraseña del buzón, la que se
+ * puso al crearlo. Llamarla «de aplicación» ahí manda a buscar en Google una
+ * pantalla que no existe para esa cuenta.
+ */
+$hostCorreo = mb_strtolower(trim($ajustes['host']));
+$esExterno = str_contains($hostCorreo, 'gmail') || str_contains($hostCorreo, 'google')
+    || str_contains($hostCorreo, 'office365') || str_contains($hostCorreo, 'outlook');
+$esLocal = $hostCorreo === 'localhost' || $hostCorreo === '127.0.0.1' || $hostCorreo === '::1';
+
+$rotuloClave = $esExterno ? 'Contraseña de aplicación' : 'Contraseña del buzón';
+$ayudaClave = $esExterno
+    ? 'En Google no vale la contraseña de la cuenta: hace falta una contraseña de aplicación de '
+      . '16 letras. Los espacios se quitan solos al guardar.'
+    : ($esLocal
+        ? 'El relé de esta misma máquina no suele pedir credenciales: deja usuario y contraseña '
+          . 'vacíos. Si tu Plesk exige autenticación, usa una dirección creada en Plesk → Correo '
+          . 'y su contraseña.'
+        : 'Es la contraseña del buzón, la que se le puso al crearlo en Plesk → Correo. Aquí no hay '
+          . '«contraseña de aplicación»: eso es un concepto de Google y de Microsoft, no de un '
+          . 'servidor de correo propio.');
 
 $marcaEstado = static function (string $estado): string {
     return match ($estado) {
@@ -68,11 +96,259 @@ $codigos = [
 
   <div class="stack stack--2">
     <span class="kicker">Administrador</span>
-    <h1>Correo</h1>
-    <p class="lead" style="max-width:64ch">
-      Sin correo la plataforma pierde la mitad de lo que hace: quien cierre sesión no podrá
-      volver a entrar —el código de acceso es lo único que lo identifica— y los carnets no
-      saldrán de la pantalla en que se generaron.
+    <h1>Autenticación</h1>
+    <p class="lead" style="max-width:66ch">
+      Cómo entran los participantes y los expositores al evento. Se pueden tener varios métodos
+      a la vez, y conviene: atar la entrada a un solo canal significa que el día que ese canal
+      falle —el correo, sin ir más lejos— nadie podrá entrar.
+    </p>
+  </div>
+
+  <!-- ============ Métodos de acceso ============ -->
+  <section class="card">
+    <div class="card__head">
+      <span>Estado de los métodos</span>
+      <span class="mono" style="font-size:11px;color:var(--c-muted)"><?= count($metodos) ?> activo(s)</span>
+    </div>
+    <div class="card__body stack stack--3">
+      <?php foreach ($revisionAuth as $punto): ?>
+        <div style="display:grid;grid-template-columns:20px 1fr;gap:10px;align-items:start">
+          <div style="padding-top:2px"><?= $marcaEstado($punto['estado']) ?></div>
+          <div class="stack stack--1">
+            <strong style="font-size:14px"><?= e($punto['titulo']) ?></strong>
+            <p class="help" style="margin:0"><?= e($punto['detalle']) ?></p>
+            <?php if ($punto['arreglo'] !== ''): ?>
+              <p class="help" style="margin:0;color:var(--c-accent)">→ <?= e($punto['arreglo']) ?></p>
+            <?php endif; ?>
+          </div>
+        </div>
+      <?php endforeach; ?>
+    </div>
+  </section>
+
+  <form class="card" method="post" action="<?= e(u('/admin/autenticacion')) ?>">
+    <?= testigo() ?>
+    <div class="card__head"><span>Formas de entrar</span></div>
+    <div class="card__body stack stack--4">
+
+      <div class="stack stack--3">
+        <?php foreach ($catalogo as $clave => $m): ?>
+          <div style="display:grid;grid-template-columns:22px 1fr;gap:10px;align-items:start;
+                      padding-bottom:12px;border-bottom:1px solid var(--hair,var(--a-14))">
+            <input type="checkbox" name="metodos[]" value="<?= e($clave) ?>"
+                   id="metodo-<?= e($clave) ?>" style="width:17px;height:17px;margin-top:3px;accent-color:var(--c-accent)"
+                   <?= in_array($clave, $metodos, true) ? 'checked' : '' ?>>
+            <div class="stack stack--1">
+              <label class="label" for="metodo-<?= e($clave) ?>" style="margin:0">
+                <?= e($m['nombre']) ?>
+                <?php if ($m['sinTerceros']): ?>
+                  <span class="mono" style="font-size:10px;color:var(--c-ok,#3fbf7f)">· sin terceros</span>
+                <?php else: ?>
+                  <span class="mono" style="font-size:10px;color:var(--c-muted)">· requiere proveedor</span>
+                <?php endif; ?>
+              </label>
+              <p class="help" style="margin:0"><?= e($m['resumen']) ?></p>
+              <p class="help" style="margin:0;color:var(--c-muted)"><?= e($m['necesita']) ?></p>
+            </div>
+          </div>
+        <?php endforeach; ?>
+      </div>
+
+      <div class="split" style="gap:14px">
+        <div class="field">
+          <label class="label" for="preferido">Método que se ofrece primero</label>
+          <select name="metodo_preferido" id="preferido" class="select">
+            <?php foreach ($catalogo as $clave => $m): ?>
+              <option value="<?= e($clave) ?>" <?= $preferido === $clave ? 'selected' : '' ?>>
+                <?= e($m['nombre']) ?>
+              </option>
+            <?php endforeach; ?>
+          </select>
+          <span class="help">Los demás quedan a un clic, en la misma pantalla.</span>
+        </div>
+        <div class="field">
+          <label class="label" for="clave-minima">Largo mínimo de la contraseña</label>
+          <input type="number" name="auth_clave_minima" id="clave-minima" class="input" min="6" max="64"
+                 value="<?= e((string) $auth['claveMinima']) ?>">
+          <span class="help">Solo aplica al método «Contraseña simple».</span>
+        </div>
+      </div>
+
+      <!-- ---------- WhatsApp ---------- -->
+      <fieldset style="border:1px solid var(--a-14);padding:16px;display:grid;gap:14px">
+        <legend class="kicker" style="padding:0 6px">WhatsApp</legend>
+        <div class="split" style="gap:14px">
+          <div class="field">
+            <label class="label" for="wa-proveedor">Proveedor</label>
+            <select name="wa_proveedor" id="wa-proveedor" class="select">
+              <?php foreach ($mensajeria['whatsapp'] as $clave => $p): ?>
+                <option value="<?= e($clave) ?>" <?= $auth['waProveedor'] === $clave ? 'selected' : '' ?>>
+                  <?= e($p['nombre']) ?>
+                </option>
+              <?php endforeach; ?>
+            </select>
+          </div>
+          <div class="field">
+            <label class="label" for="wa-cuenta">Cuenta / identificador del número</label>
+            <input type="text" name="wa_cuenta" id="wa-cuenta" class="input" autocapitalize="off"
+                   value="<?= e($auth['waCuenta']) ?>" placeholder="1234567890123456 · o AC…">
+          </div>
+        </div>
+        <div class="split" style="gap:14px">
+          <div class="field">
+            <label class="label" for="wa-remitente">Número emisor (solo Twilio)</label>
+            <input type="text" name="wa_remitente" id="wa-remitente" class="input"
+                   value="<?= e($auth['waRemitente']) ?>" placeholder="+573001112233">
+          </div>
+          <div class="field">
+            <label class="label" for="wa-token">
+              Token
+              <?php if ($auth['hayWaToken']): ?>
+                <span class="mono" style="font-size:10px;color:var(--c-muted)">· hay uno guardado</span>
+              <?php endif; ?>
+            </label>
+            <input type="password" name="wa_token" id="wa-token" class="input" autocomplete="new-password"
+                   placeholder="<?= $auth['hayWaToken'] ? '••••••••  (déjalo vacío para no cambiarlo)' : 'EAAG… / Auth Token' ?>">
+          </div>
+        </div>
+        <?php if ($auth['hayWaToken']): ?>
+          <label class="row" style="gap:8px;cursor:pointer">
+            <input type="checkbox" name="borrar_wa_token" value="1" style="width:16px;height:16px;accent-color:var(--c-accent)">
+            <span class="help">Borrar el token guardado</span>
+          </label>
+        <?php endif; ?>
+
+        <div class="stack stack--1" style="padding-top:8px;border-top:1px solid var(--hair,var(--a-14))">
+          <strong style="font-size:12.5px">Cómo se configura</strong>
+          <ol style="margin:0;padding-left:18px;display:grid;gap:5px">
+            <li class="help" style="margin:0"><strong>Meta (WhatsApp Cloud API):</strong> crea una app en
+              <span class="mono">developers.facebook.com</span> → añade el producto WhatsApp → en
+              <em>API Setup</em> copia el <strong>Phone number ID</strong> a «Cuenta» y genera un
+              <strong>token permanente de sistema</strong> para «Token».</li>
+            <li class="help" style="margin:0"><strong>Twilio:</strong> «Cuenta» es el
+              <span class="mono">Account SID</span> (empieza por AC), «Token» el <em>Auth Token</em>, y
+              «Número emisor» el número de WhatsApp aprobado, con indicativo.</li>
+            <li class="help" style="margin:0"><strong>Plantilla obligatoria.</strong> WhatsApp solo deja
+              texto libre dentro de las 24 h siguientes a que la persona escriba. Para iniciar la
+              conversación hace falta una <strong>plantilla aprobada</strong> de categoría
+              <em>Authentication</em>; se aprueba en horas y es gratuita.</li>
+            <li class="help" style="margin:0">El teléfono de cada persona debe estar en su preregistro.
+              Se acepta en cualquier formato: la plataforma lo normaliza a <span class="mono">+57…</span>.</li>
+            <li class="help" style="margin:0">Sale por HTTPS al 443, así que <strong>funciona aunque el
+              servidor tenga cerrada la salida SMTP</strong>.</li>
+          </ol>
+        </div>
+      </fieldset>
+
+      <!-- ---------- SMS ---------- -->
+      <fieldset style="border:1px solid var(--a-14);padding:16px;display:grid;gap:14px">
+        <legend class="kicker" style="padding:0 6px">Mensaje de texto (SMS)</legend>
+        <div class="split" style="gap:14px">
+          <div class="field">
+            <label class="label" for="sms-proveedor">Proveedor</label>
+            <select name="sms_proveedor" id="sms-proveedor" class="select">
+              <?php foreach ($mensajeria['sms'] as $clave => $p): ?>
+                <option value="<?= e($clave) ?>" <?= $auth['smsProveedor'] === $clave ? 'selected' : '' ?>>
+                  <?= e($p['nombre']) ?>
+                </option>
+              <?php endforeach; ?>
+            </select>
+          </div>
+          <div class="field">
+            <label class="label" for="sms-cuenta">Account SID · o URL de la pasarela</label>
+            <input type="text" name="sms_cuenta" id="sms-cuenta" class="input" autocapitalize="off"
+                   value="<?= e($auth['smsCuenta']) ?>"
+                   placeholder="AC… · o https://pasarela/enviar?to={telefono}&amp;msg={texto}">
+          </div>
+        </div>
+        <div class="split" style="gap:14px">
+          <div class="field">
+            <label class="label" for="sms-remitente">Número o nombre emisor</label>
+            <input type="text" name="sms_remitente" id="sms-remitente" class="input"
+                   value="<?= e($auth['smsRemitente']) ?>" placeholder="+573001112233">
+          </div>
+          <div class="field">
+            <label class="label" for="sms-token">
+              Token
+              <?php if ($auth['haySmsToken']): ?>
+                <span class="mono" style="font-size:10px;color:var(--c-muted)">· hay uno guardado</span>
+              <?php endif; ?>
+            </label>
+            <input type="password" name="sms_token" id="sms-token" class="input" autocomplete="new-password"
+                   placeholder="<?= $auth['haySmsToken'] ? '••••••••  (déjalo vacío para no cambiarlo)' : 'Auth Token / clave' ?>">
+          </div>
+        </div>
+        <?php if ($auth['haySmsToken']): ?>
+          <label class="row" style="gap:8px;cursor:pointer">
+            <input type="checkbox" name="borrar_sms_token" value="1" style="width:16px;height:16px;accent-color:var(--c-accent)">
+            <span class="help">Borrar el token guardado</span>
+          </label>
+        <?php endif; ?>
+
+        <div class="stack stack--1" style="padding-top:8px;border-top:1px solid var(--hair,var(--a-14))">
+          <strong style="font-size:12.5px">Cómo se configura</strong>
+          <ol style="margin:0;padding-left:18px;display:grid;gap:5px">
+            <li class="help" style="margin:0"><strong>Twilio:</strong> «Cuenta» es el
+              <span class="mono">Account SID</span>, «Token» el <em>Auth Token</em>, y «Emisor» un número
+              comprado en <em>Phone Numbers</em> con SMS habilitado para Colombia.</li>
+            <li class="help" style="margin:0"><strong>Pasarela propia:</strong> pon en «Cuenta» la URL
+              completa que dé el proveedor local, usando <span class="mono">{telefono}</span>,
+              <span class="mono">{texto}</span> y <span class="mono">{remitente}</span> donde
+              correspondan. El token se manda como <span class="mono">Authorization: Bearer</span>.</li>
+            <li class="help" style="margin:0">Para Colombia conviene un proveedor con ruta local:
+              los internacionales suelen tener entrega irregular a operadoras colombianas.</li>
+            <li class="help" style="margin:0"><strong>Cada SMS cuesta.</strong> El límite de la
+              plataforma —cuatro por hora y destinatario— acota el gasto, pero revisa el consumo
+              durante el evento.</li>
+            <li class="help" style="margin:0">También sale por HTTPS al 443: no le afecta el bloqueo
+              de SMTP.</li>
+          </ol>
+        </div>
+      </fieldset>
+
+      <!-- ---------- QR y contraseña: instrucciones ---------- -->
+      <fieldset style="border:1px solid var(--a-14);padding:16px;display:grid;gap:12px">
+        <legend class="kicker" style="padding:0 6px">QR de acceso y contraseña</legend>
+        <div class="stack stack--1">
+          <strong style="font-size:12.5px">QR de acceso — cómo se usa</strong>
+          <ol style="margin:0;padding-left:18px;display:grid;gap:5px">
+            <li class="help" style="margin:0">No hay nada que configurar: se genera solo para cada
+              persona la primera vez que hace falta.</li>
+            <li class="help" style="margin:0">Aparece en el carnet, junto al QR de contacto. Son
+              <strong>distintos a propósito</strong>: el de contacto se enseña a cualquiera para
+              intercambiar datos; este abre la sesión de su dueño.</li>
+            <li class="help" style="margin:0">Se escanea con la cámara del teléfono, sin aplicación.
+              Es el método que sigue funcionando <strong>sin correo, sin datos y sin terceros</strong>.</li>
+            <li class="help" style="margin:0">Si alguien pierde la escarapela, se regenera su código
+              desde <em>Registros</em> y el anterior deja de servir en el acto.</li>
+          </ol>
+        </div>
+        <div class="stack stack--1" style="padding-top:8px;border-top:1px solid var(--hair,var(--a-14))">
+          <strong style="font-size:12.5px">Contraseña simple — cómo se usa</strong>
+          <ol style="margin:0;padding-left:18px;display:grid;gap:5px">
+            <li class="help" style="margin:0">La persona la elige en el preregistro. Se guarda con
+              Argon2id, nunca en claro.</li>
+            <li class="help" style="margin:0">Quien se preregistró <strong>antes</strong> de encender
+              este método no tiene contraseña: entrará por otro y podrá ponerla desde sus datos.</li>
+            <li class="help" style="margin:0">Con el límite de intentos de la plataforma, probar
+              contraseñas al azar no es viable; aun así, para un evento de pocos días el QR es más
+              cómodo y más seguro.</li>
+          </ol>
+        </div>
+      </fieldset>
+
+      <div class="row" style="gap:10px">
+        <button class="btn btn--primary" type="submit">Guardar métodos de acceso</button>
+      </div>
+    </div>
+  </form>
+
+  <div class="stack stack--2" style="padding-top:10px">
+    <span class="kicker">Envío de mensajes</span>
+    <p class="help" style="margin:0;max-width:66ch">
+      Lo de abajo configura <strong>por dónde salen</strong> los correos: los códigos de acceso, los
+      carnets y los avisos. Aplica al método «Correo electrónico» y a todo lo demás que la
+      plataforma envíe por buzón.
     </p>
   </div>
 
@@ -402,10 +678,7 @@ $codigos = [
             </span>
             <input type="password" name="smtp_clave" class="input" autocomplete="new-password"
                    placeholder="<?= $ajustes['hayClave'] ? '•••• •••• •••• ••••  (déjalo vacío para no cambiarla)' : 'xxxx xxxx xxxx xxxx' ?>">
-            <span class="help">
-              En Google no vale la contraseña de la cuenta: hace falta una contraseña de
-              aplicación de 16 letras. Los espacios se quitan solos al guardar.
-            </span>
+            <span class="help"><?= e($ayudaClave) ?></span>
           </label>
         </div>
 

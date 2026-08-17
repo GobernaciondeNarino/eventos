@@ -34,7 +34,9 @@ require RAIZ . '/app/ayudas.php';
 
 use App\Nucleo\Config;
 use App\Nucleo\Correo;
+use App\Nucleo\Autenticacion;
 use App\Nucleo\CorreoApi;
+use App\Nucleo\Mensajeria;
 use App\Nucleo\Smtp;
 
 Config::establecerEnMemoria(['llave_cifrado' => str_repeat('b', 64), 'depurar' => false]);
@@ -763,6 +765,131 @@ comprobar('lleva el UID de verdad de este proceso, no un hueco',
 $notas = implode(' ', array_column($ordenes, 'nota'));
 comprobar('y se menciona la alternativa de nftables', str_contains($notas, 'nft '), $notas);
 comprobar('y ConfigServer Firewall', str_contains($notas, 'SMTP_ALLOWUSER'), $notas);
+
+
+/* =====================================================================
+   Autenticación: los métodos de acceso
+   -------------------------------------------------------------------------
+   Existen porque atar la entrada al correo dejó a todo el mundo fuera cuando
+   el correo falló. Lo que se comprueba es que nunca quede el evento sin puerta
+   y que cada método haga lo suyo.
+   ===================================================================== */
+
+titulo('Métodos de acceso');
+
+Config::establecerEnMemoria(['auth_metodos' => ['correo', 'qr'], 'auth_metodo_preferido' => 'qr']);
+comprobar('se leen los métodos guardados',
+    Autenticacion::activos() === ['correo', 'qr'], implode(',', Autenticacion::activos()));
+comprobar('y el preferido', Autenticacion::preferido() === 'qr');
+
+Config::establecerEnMemoria(['auth_metodos' => []]);
+comprobar('sin ninguno, queda el correo: el evento no puede quedarse sin puerta',
+    Autenticacion::activos() === ['correo'], implode(',', Autenticacion::activos()));
+
+Config::establecerEnMemoria(['auth_metodos' => ['qr', 'inventado', 42]]);
+comprobar('los métodos que no existen se descartan',
+    Autenticacion::activos() === ['qr'], implode(',', Autenticacion::activos()));
+
+Config::establecerEnMemoria(['auth_metodos' => ['qr'], 'auth_metodo_preferido' => 'correo']);
+comprobar('un preferido que no está activo cae al primero activo',
+    Autenticacion::preferido() === 'qr');
+
+Config::establecerEnMemoria(['auth_metodos' => 'no-es-un-arreglo']);
+comprobar('una configuración corrupta no rompe nada',
+    Autenticacion::activos() === ['correo']);
+
+Config::establecerEnMemoria(['auth_clave_minima' => 2]);
+comprobar('el mínimo de contraseña no baja de 6', Autenticacion::claveMinima() === 6);
+Config::establecerEnMemoria(['auth_clave_minima' => 500]);
+comprobar('ni sube de 64', Autenticacion::claveMinima() === 64);
+
+titulo('Teléfonos, como los escribe la gente');
+
+foreach ([
+    ['3001112233', '+573001112233', 'móvil colombiano a secas'],
+    ['300 111 22 33', '+573001112233', 'con espacios'],
+    ['300-111-2233', '+573001112233', 'con guiones'],
+    ['+57 300 111 2233', '+573001112233', 'con indicativo'],
+    ['0057 3001112233', '+573001112233', 'con 0057 delante'],
+    ['(300) 111-2233', '+573001112233', 'con paréntesis'],
+    ['12345', '', 'demasiado corto: se descarta'],
+    ['', '', 'vacío'],
+] as [$entra, $sale, $descripcion]) {
+    comprobar('teléfono ' . $descripcion,
+        Autenticacion::telefonoInternacional($entra) === $sale,
+        Autenticacion::telefonoInternacional($entra));
+}
+
+titulo('Aviso cuando solo se puede entrar por correo');
+
+Config::establecerEnMemoria(['auth_metodos' => ['correo'], 'modo_correo' => 'registro']);
+$revision = Autenticacion::revision();
+$titulos = implode(' | ', array_column($revision, 'titulo'));
+comprobar('se avisa del punto único de fallo',
+    str_contains($titulos, 'Solo se puede entrar por correo'), $titulos);
+comprobar('y se propone el QR como respaldo',
+    str_contains(implode(' ', array_column($revision, 'arreglo')), 'QR'), $titulos);
+
+Config::establecerEnMemoria(['auth_metodos' => ['whatsapp'], 'wa_proveedor' => '', 'wa_token' => '']);
+$revision = Autenticacion::revision();
+comprobar('un método encendido y sin configurar es bloqueante',
+    array_filter($revision, static fn(array $r): bool => $r['estado'] === 'fail') !== []);
+
+titulo('Mensajería por WhatsApp y SMS');
+
+comprobar('los proveedores de WhatsApp están declarados',
+    array_keys(Mensajeria::PROVEEDORES['whatsapp']) === ['meta', 'twilio']);
+comprobar('y los de SMS', array_keys(Mensajeria::PROVEEDORES['sms']) === ['twilio', 'generico']);
+comprobar('conocido() acierta',
+    Mensajeria::conocido('whatsapp', 'meta') && Mensajeria::conocido('sms', 'generico')
+    && !Mensajeria::conocido('whatsapp', 'generico') && !Mensajeria::conocido('otro', 'meta'));
+
+foreach ([
+    ['whatsapp', 'meta', 'ok-201', '"messaging_product"', 'Authorization: Bearer '],
+    ['whatsapp', 'twilio', 'ok-201', 'whatsapp%3A', 'Authorization: Basic '],
+    ['sms', 'twilio', 'ok-201', 'Body=', 'Authorization: Basic '],
+    ['sms', 'generico', 'ok-201', 'text=', 'Authorization: Bearer '],
+] as [$canal, $proveedor, $escenario, $enCuerpo, $enCabecera]) {
+    $lanzadoApi = $levantarApi($escenario);
+    [$procesoApi, $tuberiasApi, $puertoApi] = $lanzadoApi;
+    $url = 'http://127.0.0.1:' . $puertoApi . '/enviar';
+
+    $m = new Mensajeria($canal, $proveedor, 'token-de-mentira', '+573009998877', 'AC0123456789', 8, $url);
+    $mandado = $m->enviar('3001112233', 'Tu código es 123456');
+
+    comprobar("$canal/$proveedor: envía", $mandado, $m->error());
+    $recibido = (string) @file_get_contents(sys_get_temp_dir() . '/api-correo-' . $puertoApi . '.txt');
+    comprobar("$canal/$proveedor: el cuerpo lleva $enCuerpo", str_contains($recibido, $enCuerpo), $recibido);
+    comprobar("$canal/$proveedor: autentica con «" . trim($enCabecera) . '»',
+        str_contains($recibido, $enCabecera), $recibido);
+    comprobar("$canal/$proveedor: el token no aparece en la transcripción",
+        !str_contains($m->transcripcion(), 'token-de-mentira'), $m->transcripcion());
+    @unlink(sys_get_temp_dir() . '/api-correo-' . $puertoApi . '.txt');
+    $bajar($lanzadoApi);
+}
+
+titulo('Mensajería: lo que no debe intentarse');
+
+$m = new Mensajeria('sms', 'twilio', 'x', '+57300', 'AC1', 5);
+comprobar('un teléfono imposible se rechaza antes de conectar',
+    !$m->enviar('12', 'hola'));
+comprobar('y se explica el formato', str_contains($m->error(), 'diez dígitos'), $m->error());
+
+$m = new Mensajeria('whatsapp', 'inventado', 'x', '', '', 5);
+comprobar('un proveedor desconocido se rechaza', !$m->enviar('3001112233', 'hola'));
+
+$m = new Mensajeria('whatsapp', 'meta', '', '', '123', 5);
+comprobar('sin token no se intenta', !$m->enviar('3001112233', 'hola'));
+
+$m = new Mensajeria('whatsapp', 'meta', 'tok', '', '', 5);
+comprobar('sin identificador de número tampoco', !$m->enviar('3001112233', 'hola'));
+
+$pistas = implode(' ', Mensajeria::explicar('400', 'template not found', 'whatsapp', 'meta'));
+comprobar('se explica lo de la plantilla de WhatsApp',
+    str_contains($pistas, 'plantilla aprobada'), $pistas);
+comprobar('sin asteriscos de markdown', !str_contains($pistas, '**'), $pistas);
+$pistas = implode(' ', Mensajeria::explicar('401', 'unauthorized', 'sms', 'twilio'));
+comprobar('y lo de la credencial', str_contains($pistas, 'credencial no vale'), $pistas);
 
 echo "\n" . str_repeat('─', 62) . "\n";
 printf("%d comprobaciones correctas · %d fallidas\n\n", $ok, count($fallos));

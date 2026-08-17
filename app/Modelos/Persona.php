@@ -226,4 +226,89 @@ final class Persona
         }
         return array_map('intval', explode(',', $concatenado));
     }
+
+    /* =====================================================================
+       Métodos de acceso distintos del código por correo
+       -------------------------------------------------------------------------
+       Existen porque atar la entrada al correo dejó a todo el mundo fuera
+       cuando el correo falló. Ver App\Nucleo\Autenticacion.
+       ===================================================================== */
+
+    /** Guarda la contraseña simple de una persona. Se guarda el hash, claro. */
+    public static function ponerClave(int $id, string $clave): void
+    {
+        Bd::ejecutar('UPDATE {persona} SET clave_hash = ? WHERE id = ?', [
+            Cripto::hashClave($clave),
+            $id,
+        ]);
+    }
+
+    public static function tieneClave(array $persona): bool
+    {
+        return (string) ($persona['clave_hash'] ?? '') !== '';
+    }
+
+    /**
+     * ¿Es esta la contraseña de esta persona?
+     *
+     * Con hash_equals implícito dentro de password_verify, y sin atajos: si la
+     * persona no tiene contraseña puesta, se compara igual contra un hash
+     * inventado para que responder tarde lo mismo y no se pueda averiguar quién
+     * la tiene y quién no midiendo el tiempo.
+     */
+    public static function claveValida(array $persona, string $clave): bool
+    {
+        $hash = (string) ($persona['clave_hash'] ?? '');
+        if ($hash === '') {
+            Cripto::verificarClave($clave, '$2y$12$' . str_repeat('a', 53));
+            return false;
+        }
+        return Cripto::verificarClave($clave, $hash);
+    }
+
+    /**
+     * El token del QR de acceso, creándolo si no lo tenía.
+     *
+     * Son 128 bits en hexadecimal, como los tokens de credencial: quien vea un
+     * QR ajeno no puede deducir otro, y adivinarlo no es viable.
+     *
+     * Es distinto del token de la credencial a propósito. El de la credencial
+     * está impreso en la escarapela y se enseña a cualquiera para intercambiar
+     * contactos; este identifica a su dueño y abre su sesión. Que fueran el
+     * mismo convertiría cada foto de una escarapela en una llave.
+     */
+    public static function tokenDeAcceso(int $id): string
+    {
+        $fila = Bd::fila('SELECT acceso_token FROM {persona} WHERE id = ?', [$id]);
+        $actual = (string) ($fila['acceso_token'] ?? '');
+        if ($actual !== '') {
+            return $actual;
+        }
+
+        $nuevo = Cripto::token(16);
+        Bd::ejecutar('UPDATE {persona} SET acceso_token = ?, acceso_token_en = NOW() WHERE id = ?', [
+            $nuevo,
+            $id,
+        ]);
+        return $nuevo;
+    }
+
+    /** Cambia el token: invalida el QR anterior. Para cuando se pierde una escarapela. */
+    public static function regenerarTokenDeAcceso(int $id): string
+    {
+        $nuevo = Cripto::token(16);
+        Bd::ejecutar('UPDATE {persona} SET acceso_token = ?, acceso_token_en = NOW() WHERE id = ?', [
+            $nuevo,
+            $id,
+        ]);
+        return $nuevo;
+    }
+
+    public static function porTokenDeAcceso(string $token): ?array
+    {
+        if (!preg_match('/^[a-f0-9]{32}$/', $token)) {
+            return null;
+        }
+        return Bd::fila('SELECT * FROM {persona} WHERE acceso_token = ?', [$token]);
+    }
 }

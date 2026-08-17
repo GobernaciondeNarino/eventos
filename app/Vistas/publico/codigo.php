@@ -1,12 +1,20 @@
 <?php
 /** Acceso del asistente, paso 2. @var string $correo @var array $errores @var bool $modoRegistro */
 defined('EVENTOS_TIC') || exit;
+
+// Decir por dónde llegó el código. Poner «revisa tu correo» cuando salió por
+// WhatsApp manda a la gente a mirar donde no hay nada.
+$canalTexto = match ($metodo ?? 'correo') {
+    'whatsapp' => 'tu WhatsApp',
+    'sms'      => 'tus mensajes de texto',
+    default    => 'tu correo',
+};
 ?>
 <div class="view view--narrow stack stack--5" style="max-width:480px;margin:auto">
 
   <div class="stack stack--2">
     <span class="kicker">Acceso de asistentes</span>
-    <h1>Revisa tu correo</h1>
+    <h1>Revisa <?= e($canalTexto) ?></h1>
     <p class="lead">
       Si <span class="mono accent"><?= e($correo) ?></span> está registrado en el evento,
       acaba de recibir un código de seis dígitos. Vence en diez minutos.

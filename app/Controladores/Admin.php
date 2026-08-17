@@ -817,8 +817,14 @@ final class Admin
     public function correo(Peticion $peticion): void
     {
         Respuesta::vista('admin/correo', [
-            'titulo'    => 'Correo',
-            'pantalla'  => 'admin-correo',
+            'titulo'    => 'Autenticación',
+            'pantalla'  => 'admin-autenticacion',
+            'metodos'      => \App\Nucleo\Autenticacion::activos(),
+            'catalogo'     => \App\Nucleo\Autenticacion::METODOS,
+            'preferido'    => \App\Nucleo\Autenticacion::preferido(),
+            'revisionAuth' => \App\Nucleo\Autenticacion::revision(),
+            'mensajeria'   => \App\Nucleo\Mensajeria::PROVEEDORES,
+            'auth'         => $this->ajustesDeAutenticacion(),
             'ajustes'   => $this->ajustesDeCorreo(),
             'revision'  => Correo::revision(),
             'prueba'    => Sesion::datos('admin')['prueba_correo'] ?? null,
@@ -1025,6 +1031,87 @@ final class Admin
 
         Sesion::guardarDatos('admin', ['red_correo' => $red] + Sesion::datos('admin'));
         Respuesta::redirigir('/admin/correo', 'Diagnóstico de red terminado.', 'ok');
+    }
+
+    /** Los métodos de acceso y lo que necesita cada uno, sin credenciales. */
+    private function ajustesDeAutenticacion(): array
+    {
+        return [
+            'claveMinima' => \App\Nucleo\Autenticacion::claveMinima(),
+            'waProveedor' => (string) Config::obtener('wa_proveedor', 'meta'),
+            'waCuenta'    => (string) Config::obtener('wa_cuenta', ''),
+            'waRemitente' => (string) Config::obtener('wa_remitente', ''),
+            'hayWaToken'  => (string) Config::obtener('wa_token', '') !== '',
+            'smsProveedor' => (string) Config::obtener('sms_proveedor', 'twilio'),
+            'smsCuenta'    => (string) Config::obtener('sms_cuenta', ''),
+            'smsRemitente' => (string) Config::obtener('sms_remitente', ''),
+            'haySmsToken'  => (string) Config::obtener('sms_token', '') !== '',
+        ];
+    }
+
+    /** Guarda los métodos de acceso y su configuración. */
+    public function guardarAutenticacion(Peticion $peticion): void
+    {
+        $enviados = $peticion->campoArreglo('metodos');
+        $validos = array_values(array_filter(
+            $enviados,
+            static fn($m): bool => is_string($m) && isset(\App\Nucleo\Autenticacion::METODOS[$m])
+        ));
+        if ($validos === []) {
+            Respuesta::redirigir('/admin/autenticacion',
+                'Deja al menos un método activo: si no, nadie podría entrar.', 'warn');
+        }
+
+        $preferido = $peticion->campo('metodo_preferido', $validos[0]);
+        if (!in_array($preferido, $validos, true)) {
+            $preferido = $validos[0];
+        }
+
+        // Igual que en el correo: vacío significa «déjala como está».
+        $tokenDe = function (string $prefijo) use ($peticion): string {
+            $nuevo = trim($peticion->campoCrudo($prefijo . '_token'));
+            if ($nuevo !== '') {
+                return $nuevo;
+            }
+            return $peticion->marcado('borrar_' . $prefijo . '_token')
+                ? ''
+                : (string) Config::obtener($prefijo . '_token', '');
+        };
+
+        $waProveedor = $peticion->campo('wa_proveedor', 'meta');
+        $smsProveedor = $peticion->campo('sms_proveedor', 'twilio');
+        if (!\App\Nucleo\Mensajeria::conocido('whatsapp', $waProveedor)
+            || !\App\Nucleo\Mensajeria::conocido('sms', $smsProveedor)) {
+            Respuesta::redirigir('/admin/autenticacion', 'Ese proveedor no existe.', 'warn');
+        }
+
+        $nuevos = [
+            'auth_metodos'          => $validos,
+            'auth_metodo_preferido' => $preferido,
+            'auth_clave_minima'     => max(6, min(64, (int) $peticion->campo('auth_clave_minima', '8'))),
+            'wa_proveedor'  => $waProveedor,
+            'wa_cuenta'     => mb_substr(trim($peticion->campo('wa_cuenta')), 0, 190),
+            'wa_remitente'  => mb_substr(trim($peticion->campo('wa_remitente')), 0, 40),
+            'wa_token'      => $tokenDe('wa'),
+            'sms_proveedor' => $smsProveedor,
+            'sms_cuenta'    => mb_substr(trim($peticion->campo('sms_cuenta')), 0, 400),
+            'sms_remitente' => mb_substr(trim($peticion->campo('sms_remitente')), 0, 40),
+            'sms_token'     => $tokenDe('sms'),
+        ];
+
+        if (!Config::escribir($nuevos + Config::todo())) {
+            Respuesta::redirigir('/admin/autenticacion',
+                'No se pudo escribir config/config.php. Revisa los permisos de config/.', 'warn');
+        }
+        Config::establecerEnMemoria($nuevos);
+
+        Bitacora::registrar('autenticacion_configurada', 'sistema', null, [
+            'metodos'   => $validos,
+            'preferido' => $preferido,
+        ]);
+
+        Respuesta::redirigir('/admin/autenticacion',
+            'Métodos de acceso guardados: ' . implode(', ', $validos) . '.', 'ok');
     }
 
     /** Lo que la pantalla necesita, sin la contraseña. */

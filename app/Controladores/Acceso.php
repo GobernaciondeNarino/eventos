@@ -8,6 +8,7 @@ defined('EVENTOS_TIC') || exit;
 use App\Modelos\Persona;
 use App\Modelos\Usuario;
 use App\Nucleo\App;
+use App\Nucleo\Autenticacion;
 use App\Nucleo\Bd;
 use App\Nucleo\Bitacora;
 use App\Nucleo\Config;
@@ -55,9 +56,37 @@ final class Acceso
         $errores = [];
         $correo = $peticion->campo('correo');
 
+        // En un GET el método llega por la URL —los botones de la pantalla son
+        // enlaces— y en el POST por el campo oculto del formulario.
+        $metodo = $peticion->campo('metodo') ?: $peticion->query('metodo');
+        if ($metodo === '') {
+            $metodo = Autenticacion::preferido();
+        }
+        if (!Autenticacion::activo($metodo)) {
+            $metodo = Autenticacion::preferido();
+        }
+
         if ($peticion->esPost()) {
             if (!filter_var($correo, FILTER_VALIDATE_EMAIL)) {
                 $errores['correo'] = 'Escribe un correo válido, por ejemplo nombre@entidad.gov.co';
+            } elseif ($metodo === 'clave') {
+                // Contraseña simple: se resuelve aquí mismo, sin código.
+                Limite::exigir('codigo_correo', $correo);
+                $clave = $peticion->campoCrudo('clave');
+                $persona = $evento ? Persona::porCorreo((int) $evento['id'], $correo) : null;
+
+                if ($persona !== null && $clave !== '' && Persona::claveValida($persona, $clave)) {
+                    Limite::limpiar('codigo_correo', $correo);
+                    Sesion::limpiar();
+                    Sesion::abrir('asistente', (int) $persona['id']);
+                    Bitacora::registrar('acceso_asistente', 'persona', (int) $persona['id'], ['via' => 'clave']);
+                    Respuesta::redirigir($destino, 'Bienvenido de nuevo, ' . $persona['nombre'] . '.');
+                }
+
+                Limite::registrarFallo('codigo_correo', $correo);
+                // El mismo mensaje exista o no la persona, y tenga o no clave
+                // puesta: si no, este formulario dice quién está inscrito.
+                $errores['clave'] = 'El correo o la contraseña no coinciden.';
             } else {
                 Limite::exigir('envio_codigo', $correo);
                 // Se cuenta siempre, exista o no la persona. Contando solo los
@@ -73,11 +102,11 @@ final class Acceso
                 if ($persona) {
                     // No se revela si el correo existe: quien no esté registrado
                     // ve exactamente la misma pantalla.
-                    $this->enviarCodigo($persona, $evento, $destino);
+                    $this->enviarCodigo($persona, $evento, $destino, $metodo);
                 }
 
                 Sesion::limpiar();
-                $this->recordarCorreoPendiente($correo, $destino);
+                $this->recordarCorreoPendiente($correo, $destino, $metodo);
                 Respuesta::redirigirAbsoluto(Url::a('/entrar/codigo'));
             }
         }
@@ -88,10 +117,13 @@ final class Acceso
             'correo'  => $correo,
             'destino' => $destino,
             'errores' => $errores,
+            'metodo'  => $metodo,
+            'metodos' => Autenticacion::activos(),
+            'catalogo' => Autenticacion::METODOS,
         ]);
     }
 
-    private function enviarCodigo(array $persona, ?array $evento, string $destino): void
+    private function enviarCodigo(array $persona, ?array $evento, string $destino, string $metodo = 'correo'): void
     {
         $codigo = Cripto::codigoNumerico(6);
 
@@ -106,11 +138,78 @@ final class Acceso
             'expira_en'   => date('Y-m-d H:i:s', time() + 600),
         ]);
 
+        $nombreEvento = (string) ($evento['nombre'] ?? 'Eventos TIC');
+
+        // Por WhatsApp o por SMS el código sale por HTTPS al 443, así que llega
+        // aunque el servidor tenga cerrada la salida SMTP. Si el envío falla se
+        // anota y se sigue: la pantalla siguiente es la misma en cualquier caso,
+        // porque decir «no se pudo enviar» revelaría que ese correo existe.
+        if ($metodo === 'whatsapp' || $metodo === 'sms') {
+            [$ok, $error] = Autenticacion::enviarCodigo(
+                $metodo,
+                (string) $persona['telefono'],
+                $codigo,
+                $nombreEvento
+            );
+            if (!$ok) {
+                \App\Nucleo\Registro::error('No se pudo enviar el código por ' . $metodo, [
+                    'persona_id' => (int) $persona['id'],
+                    'detalle'    => $error,
+                ]);
+            }
+            return;
+        }
+
         Correo::codigoDeAcceso(
             (string) $persona['correo'],
             $codigo,
-            (string) ($evento['nombre'] ?? 'Eventos TIC')
+            $nombreEvento
         );
+    }
+
+    /* =====================================================================
+       Asistente · entrar con el QR personal
+       -------------------------------------------------------------------------
+       El método que sigue funcionando cuando todo lo demás falla: no necesita
+       correo, ni WhatsApp, ni que la persona recuerde nada. Se escanea el QR de
+       la escarapela y ya está dentro.
+       ===================================================================== */
+
+    public function porQr(Peticion $peticion, array $parametros): void
+    {
+        $token = (string) ($parametros['token'] ?? '');
+        $destino = Url::destinoSeguro($peticion->query('destino') ?: '', '/carnet');
+
+        if (!Autenticacion::activo('qr')) {
+            Respuesta::error(403, 'El acceso por QR está desactivado',
+                'La organización eligió otra forma de entrar. Usa el acceso normal.',
+                [['texto' => 'Ir al acceso', 'url' => Url::a('/entrar'), 'principal' => true]]);
+        }
+
+        // Adivinar un token de 128 bits no es viable, pero probar muchos desde
+        // el mismo sitio sí es una señal que conviene cortar.
+        Limite::exigir('token_qr', App::peticion()->ip());
+
+        $persona = Persona::porTokenDeAcceso($token);
+        if ($persona === null) {
+            Limite::registrarFallo('token_qr', App::peticion()->ip());
+            Respuesta::error(404, 'Ese código no corresponde a nadie',
+                'Puede que la escarapela sea de otro evento, o que el código se haya regenerado. '
+                . 'Pide uno nuevo en el punto de información.',
+                [['texto' => 'Entrar de otra forma', 'url' => Url::a('/entrar'), 'principal' => true]]);
+        }
+
+        $evento = App::eventoActivo();
+        if ($evento !== null && (int) $persona['evento_id'] !== (int) $evento['id']) {
+            Respuesta::error(404, 'Ese código es de otro evento',
+                'La credencial que escaneaste no pertenece al evento en curso.');
+        }
+
+        Sesion::limpiar();
+        Sesion::abrir('asistente', (int) $persona['id']);
+        Bitacora::registrar('acceso_asistente', 'persona', (int) $persona['id'], ['via' => 'qr']);
+
+        Respuesta::redirigir($destino, 'Bienvenido, ' . $persona['nombre'] . '.');
     }
 
     /* =====================================================================
@@ -163,6 +262,8 @@ final class Acceso
         Respuesta::vista('publico/codigo', [
             'titulo'   => 'Código de acceso',
             'pantalla' => 'entrar',
+            'metodo'   => $pendiente['metodo'],
+            'catalogo' => Autenticacion::METODOS,
             'correo'   => $pendiente['correo'],
             'destino'  => $pendiente['destino'],
             'errores'  => $errores,
@@ -179,9 +280,12 @@ final class Acceso
     /* ---- Correo pendiente entre los dos pasos -------------------------------
        En una cookie firmada: todavía no hay sesión que lo sostenga.         */
 
-    private function recordarCorreoPendiente(string $correo, string $destino): void
+    private function recordarCorreoPendiente(string $correo, string $destino, string $metodo = 'correo'): void
     {
-        $carga = json_encode(['c' => $correo, 'd' => $destino]) ?: '{}';
+        // El método viaja también: la pantalla del código tiene que decir «te
+        // llegó por WhatsApp» y no «revisa tu correo», que es donde la gente
+        // mira primero y no encuentra nada.
+        $carga = json_encode(['c' => $correo, 'd' => $destino, 'm' => $metodo]) ?: '{}';
         $valor = base64_encode(hash_hmac('sha256', $carga, $this->llave()) . '|' . $carga);
         $peticion = App::peticion();
         setcookie('evtic_pendiente', $valor, [
@@ -212,7 +316,11 @@ final class Acceso
         if (!is_array($datos) || empty($datos['c'])) {
             return null;
         }
-        return ['correo' => (string) $datos['c'], 'destino' => (string) ($datos['d'] ?? '/carnet')];
+        return [
+            'correo'  => (string) $datos['c'],
+            'destino' => (string) ($datos['d'] ?? '/carnet'),
+            'metodo'  => (string) ($datos['m'] ?? 'correo'),
+        ];
     }
 
     private function olvidarCorreoPendiente(): void

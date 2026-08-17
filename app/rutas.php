@@ -58,6 +58,10 @@ $enrutador->get('/municipios/{departamento:texto}', [Publico::class, 'municipios
    ========================================================================= */
 $enrutador->ambos('/entrar', [Acceso::class, 'asistente']);
 $enrutador->ambos('/entrar/codigo', [Acceso::class, 'codigo']);
+
+// Acceso por QR personal. Sin guardia: identificarse es justamente lo que hace.
+// El token es de 128 bits y hay límite por IP contra la enumeración.
+$enrutador->get('/entrar/qr/{token:token}', [Acceso::class, 'porQr']);
 $enrutador->post('/salir', [Acceso::class, 'salirAsistente']);
 
 /* =========================================================================
@@ -126,8 +130,12 @@ $enrutador->post('/admin/eventos/activar', [Admin::class, 'activarEvento'], 'adm
 $enrutador->get('/admin/identidad', [Admin::class, 'identidad'], 'admin:administrador');
 $enrutador->post('/admin/identidad', [Admin::class, 'guardarIdentidad'], 'admin:administrador');
 
-// Correo. Solo administrador: aquí se ve y se cambia la credencial con la que
-// la plataforma envía en nombre de la Gobernación.
+// Autenticación. Solo administrador: aquí se decide cómo entra la gente al
+// evento y se guardan las credenciales con las que la plataforma envía en
+// nombre de la Gobernación.
+$enrutador->get('/admin/autenticacion', [Admin::class, 'correo'], 'admin:administrador');
+$enrutador->post('/admin/autenticacion', [Admin::class, 'guardarAutenticacion'], 'admin:administrador');
+// La dirección anterior sigue viva: hay enlaces y marcadores hechos con ella.
 $enrutador->get('/admin/correo', [Admin::class, 'correo'], 'admin:administrador');
 $enrutador->post('/admin/correo', [Admin::class, 'guardarCorreo'], 'admin:administrador');
 $enrutador->post('/admin/correo/probar', [Admin::class, 'probarCorreo'], 'admin:administrador');

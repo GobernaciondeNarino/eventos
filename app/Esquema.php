@@ -15,7 +15,7 @@ use App\Nucleo\Bd;
  */
 final class Esquema
 {
-    public const VERSION = '1.1.0';
+    public const VERSION = '1.2.0';
 
     /**
      * @return array<string, array{nota: string, columnas: array<string,string>, llaves: array<int,string>}>
@@ -93,6 +93,15 @@ final class Esquema
                     'municipio'          => "VARCHAR(80) NOT NULL DEFAULT ''",
                     'rol'                => "ENUM('participante','visitante','expositor','organizador','prensa') NOT NULL DEFAULT 'participante'",
                     'comparte_telefono'  => 'TINYINT(1) NOT NULL DEFAULT 1',
+                    // Métodos de acceso distintos del código por correo.
+                    // Van aquí y no en una tabla aparte porque son uno por
+                    // persona y se leen en cada intento de entrada.
+                    'clave_hash'         => "VARCHAR(255) NOT NULL DEFAULT ''",
+                    // Nulable a propósito: con una llave única, dos cadenas
+                    // vacías chocarían y la segunda persona sin QR no se podría
+                    // guardar. En MySQL los nulos no chocan entre sí.
+                    'acceso_token'       => 'VARCHAR(32) NULL DEFAULT NULL',
+                    'acceso_token_en'    => 'DATETIME NULL DEFAULT NULL',
                     'en_directorio'      => 'TINYINT(1) NOT NULL DEFAULT 0',
                     'autorizo_datos_en'  => 'DATETIME NOT NULL',
                     'creado_en'          => 'DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP',
@@ -103,6 +112,7 @@ final class Esquema
                     'UNIQUE KEY uq_persona_doc (evento_id, documento_huella)',
                     'KEY idx_persona_municipio (evento_id, municipio)',
                     'KEY idx_persona_rol (evento_id, rol)',
+                    'UNIQUE KEY uq_persona_acceso (acceso_token)',
                     'CONSTRAINT fk_persona_evento FOREIGN KEY (evento_id) REFERENCES {evento} (id) ON DELETE CASCADE',
                 ],
             ],

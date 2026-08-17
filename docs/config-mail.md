@@ -2,6 +2,11 @@
 
 Plataforma de Eventos TIC · Secretaría TIC, Innovación y Gobierno Abierto — Gobernación de Nariño
 
+> **Para configurar desde cero, usa [CORREO-Y-AUTENTICACION.md](CORREO-Y-AUTENTICACION.md).**
+> Ese documento es la guía operativa: Gmail, buzón interno, WhatsApp, SMS y el cortafuegos, en
+> el orden en que hay que hacerlo. Este de aquí es la **bitácora**: qué se fue descubriendo, en
+> qué orden y por qué se descartó cada hipótesis. Sirve para no repetir un camino ya recorrido.
+
 Este documento recoge cómo queda configurado el envío de correo para
 **https://tic.narino.gov.co/cumbreAI/**, por qué se hizo así, y qué mirar cuando algo falle.
 

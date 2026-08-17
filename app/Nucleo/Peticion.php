@@ -90,6 +90,28 @@ final class Peticion
         return isset($this->cuerpo[$clave]) && $this->cuerpo[$clave] !== '';
     }
 
+    /**
+     * Un campo que llega repetido, como un grupo de casillas: `metodos[]`.
+     *
+     * Devuelve solo cadenas y solo del primer nivel. Un formulario puede mandar
+     * un arreglo anidado —basta con escribir `metodos[a][b]` en el HTML— y sin
+     * este filtro eso acabaría en la configuración, que se escribe con
+     * var_export a un archivo PHP.
+     *
+     * @return array<int, string>
+     */
+    public function campoArreglo(string $clave): array
+    {
+        $valor = $this->cuerpo[$clave] ?? $this->consulta[$clave] ?? [];
+        if (!is_array($valor)) {
+            return [];
+        }
+        return array_values(array_map(
+            static fn($v): string => mb_substr(trim((string) $v), 0, 60),
+            array_filter($valor, static fn($v): bool => is_scalar($v))
+        ));
+    }
+
     public function entero(string $clave, int $porDefecto = 0): int
     {
         $v = $this->cuerpo[$clave] ?? $this->consulta[$clave] ?? null;
