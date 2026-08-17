@@ -8,6 +8,7 @@ defined('EVENTOS_TIC') || exit;
 use App\Nucleo\Bd;
 use App\Nucleo\Bitacora;
 use App\Nucleo\Cripto;
+use App\Nucleo\Imagen;
 
 /**
  * El asistente al evento.
@@ -225,6 +226,44 @@ final class Persona
             return [];
         }
         return array_map('intval', explode(',', $concatenado));
+    }
+
+    /* =====================================================================
+       Fotografía del carnet
+       ===================================================================== */
+
+    /**
+     * Guarda la foto ya procesada y borra la anterior.
+     *
+     * El procesado —tipo real, reescritura, recorte— está en App\Nucleo\Imagen.
+     * Aquí solo se toca la base y el archivo viejo, para que no queden huérfanos
+     * ocupando disco en el servidor.
+     */
+    public static function ponerFoto(int $id, string $archivo, string $tipo): void
+    {
+        $anterior = (string) (Bd::valor('SELECT foto FROM {persona} WHERE id = ?', [$id]) ?? '');
+
+        Bd::ejecutar('UPDATE {persona} SET foto = ?, foto_tipo = ? WHERE id = ?', [
+            $archivo,
+            $tipo,
+            $id,
+        ]);
+
+        if ($anterior !== '' && $anterior !== $archivo) {
+            Imagen::borrarFoto($anterior);
+        }
+    }
+
+    public static function quitarFoto(int $id): void
+    {
+        $anterior = (string) (Bd::valor('SELECT foto FROM {persona} WHERE id = ?', [$id]) ?? '');
+        Bd::ejecutar("UPDATE {persona} SET foto = '', foto_tipo = '' WHERE id = ?", [$id]);
+        Imagen::borrarFoto($anterior);
+    }
+
+    public static function tieneFoto(array $persona): bool
+    {
+        return (string) ($persona['foto'] ?? '') !== '';
     }
 
     /* =====================================================================

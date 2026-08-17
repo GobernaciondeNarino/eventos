@@ -1097,17 +1097,38 @@ final class Correo
         );
     }
 
-    public static function carnetEmitido(string $destinatario, string $nombre, string $evento, string $enlace): bool
-    {
+    /**
+     * El mensaje de bienvenida, con el enlace al carnet.
+     *
+     * $enlaceAcceso es el del QR personal, y cuando existe se usa como botón
+     * principal en vez del enlace normal. La diferencia no es cosmética: el
+     * mensaje se abre casi siempre desde el teléfono, y el navegador que usa la
+     * aplicación de correo no comparte las cookies con el navegador donde la
+     * persona se preregistró. Con el enlace normal llegaba a «identifícate»
+     * teniendo el carnet ya emitido; con este entra directo.
+     */
+    public static function carnetEmitido(
+        string $destinatario,
+        string $nombre,
+        string $evento,
+        string $enlace,
+        string $enlaceAcceso = ''
+    ): bool {
+        $principal = $enlaceAcceso !== '' ? $enlaceAcceso : $enlace;
+
         $html = self::plantilla(
             $evento,
             'Tu carnet está listo',
             '<p style="margin:0 0 16px">Hola ' . htmlspecialchars($nombre) . ',</p>'
             . '<p style="margin:0 0 16px">Tu preregistro quedó completo. Desde este enlace puedes ver '
             . 'tu carnet digital con el código QR:</p>'
-            . '<p style="margin:0 0 22px"><a href="' . htmlspecialchars($enlace) . '" '
+            . '<p style="margin:0 0 22px"><a href="' . htmlspecialchars($principal) . '" '
             . 'style="background:#0C2E3C;color:#fff;padding:13px 22px;text-decoration:none;'
             . 'display:inline-block;font-weight:600">Ver mi carnet</a></p>'
+            . ($enlaceAcceso !== ''
+                ? '<p style="margin:0 0 16px;font-size:14px;color:#556">Ese enlace es personal y abre tu '
+                  . 'sesión sin pedirte nada: guárdalo y no lo reenvíes a nadie.</p>'
+                : '')
             . '<p style="margin:0;font-size:14px;color:#556">No hace falta imprimirlo: basta con mostrarlo '
             . 'desde el celular. Cada día del evento se registra el ingreso escaneando el código de la entrada.</p>'
         );

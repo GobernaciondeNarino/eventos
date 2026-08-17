@@ -264,8 +264,20 @@ $r = $navegador->ir('/instalar', ['accion' => 'paso3', 'modo' => 'limpio']);
 comprobar('el paso 3 crea las tablas y pasa al 4', $r['codigo'] === 303 && str_contains($r['destino'], 'paso=4'),
     $r['codigo'] . ' ' . $r['destino']);
 
+// El número sale del esquema y no de una constante escrita a mano: cada vez
+// que se agregaba una tabla, esta prueba fallaba sin que hubiera nada roto.
+//
+// Se lee el archivo del esquema directamente. Esta prueba es de caja negra
+// —habla con el servidor por HTTP— y no carga la aplicación, pero
+// Esquema::nombres() no toca la base ni ninguna otra clase: es un arreglo.
+if (!defined('EVENTOS_TIC')) {
+    define('EVENTOS_TIC', true);
+}
+require_once $RAIZ . '/app/Esquema.php';
+$esperadas = count(App\Esquema::nombres());
+
 $tablas = contarTablas($BD);
-comprobar('las 16 tablas están creadas', $tablas === 16, "hay $tablas");
+comprobar("las $esperadas tablas están creadas", $tablas === $esperadas, "hay $tablas");
 
 /* ---------------------------------------------------------------------
    El estado exacto en que se quedó la instalación de producción
@@ -276,9 +288,9 @@ titulo('Instalación parada entre el paso 3 y el 5');
 $r = $navegador->ir('/instalar/diagnostico');
 $cuerpo = texto($r['html']);
 comprobar('el diagnóstico responde', $r['codigo'] === 200, 'código ' . $r['codigo']);
-comprobar('cuenta las 16 tablas aunque no exista config/config.php',
-    str_contains($cuerpo, '16 de 16'),
-    'decía: ' . (preg_match('/\d+ de 16/', $cuerpo, $m) ? $m[0] : 'nada'));
+comprobar("cuenta las $esperadas tablas aunque no exista config/config.php",
+    str_contains($cuerpo, "$esperadas de $esperadas"),
+    'decía: ' . (preg_match('/\d+ de \d+/', $cuerpo, $m) ? $m[0] : 'nada'));
 comprobar('dice que la conexión salió de config/instalacion.php',
     str_contains($cuerpo, 'config/instalacion.php (instalación en curso)'));
 comprobar('y explica que falta la cuenta administradora',

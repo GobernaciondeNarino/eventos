@@ -53,8 +53,20 @@ final class Guardia
     public static function personaActual(): ?array
     {
         $sesion = Sesion::actual('asistente');
+
+        // Sin sesión, pero puede que este teléfono ya haya entrado antes.
+        //
+        // Es el caso que más se da en la puerta: la persona se preregistró
+        // desde el navegador y ahora abre el enlace desde el correo o desde
+        // WhatsApp, que usan su propio almacén de cookies, o simplemente
+        // pasaron los treinta días de la sesión. Sin esto acababa en la
+        // pantalla de «identifícate» con el carnet ya emitido.
         if (!$sesion) {
-            return null;
+            $personaId = Dispositivo::restaurar();
+            if ($personaId === null) {
+                return null;
+            }
+            $sesion = ['sujeto_id' => $personaId];
         }
 
         $persona = Bd::fila('SELECT * FROM {persona} WHERE id = ?', [$sesion['sujeto_id']]);

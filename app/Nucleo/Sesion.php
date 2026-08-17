@@ -107,6 +107,16 @@ final class Sesion
         );
 
         self::$cache[$tipo] = null;
+
+        // Este teléfono queda recordado. No para el equipo organizador: su
+        // sesión es corta a propósito y muere al cerrar el navegador.
+        //
+        // La marca no se pone cuando la sesión viene justamente de esa marca:
+        // si no, cada visita crearía una fila nueva por el mismo dispositivo.
+        if ($tipo === 'asistente' && ($datos['via'] ?? '') !== 'dispositivo') {
+            Dispositivo::recordar($sujetoId);
+        }
+
         return $enClaro;
     }
 
@@ -235,6 +245,14 @@ final class Sesion
             '',
             time() - 3600
         );
+
+        // Salir tiene que significar salir. Si la marca del dispositivo
+        // sobreviviera al cierre de sesión, la siguiente página la volvería a
+        // abrir sola y el botón «salir» no serviría para nada.
+        if ($tipo === 'asistente') {
+            Dispositivo::olvidar();
+        }
+
         self::$cache[$tipo] = null;
     }
 
@@ -258,6 +276,7 @@ final class Sesion
         Bd::ejecutar('DELETE FROM {sesion} WHERE expira_en < NOW()');
         Bd::ejecutar('DELETE FROM {codigo_acceso} WHERE expira_en < DATE_SUB(NOW(), INTERVAL 1 DAY)');
         Bd::ejecutar('DELETE FROM {intento} WHERE creado_en < DATE_SUB(NOW(), INTERVAL 1 DAY)');
+        Dispositivo::podar();
 
         // Los registros de error viejos se van con lo demás. Registro::podar()
         // existía desde el principio y no lo llamaba nadie: en una instalación

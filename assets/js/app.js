@@ -197,6 +197,95 @@
     });
   }
 
+  /* ---- Copiar al portapapeles ---------------------------------------------
+     El botón lleva el texto en data-copiar. Si el navegador no tiene la API
+     moderna —o la página no está en HTTPS— se cae al método de siempre, que
+     funciona en todas partes.                                             */
+  document.addEventListener('click', function (e) {
+    var boton = e.target.closest('[data-copiar]');
+    if (!boton) return;
+    e.preventDefault();
+
+    var texto = boton.getAttribute('data-copiar') || '';
+    var previo = boton.textContent;
+
+    var avisar = function (ok) {
+      boton.textContent = ok ? 'Copiado' : 'No se pudo copiar';
+      setTimeout(function () { boton.textContent = previo; }, 1800);
+    };
+
+    if (navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard.writeText(texto).then(function () { avisar(true); },
+        function () { avisar(false); });
+      return;
+    }
+
+    var campo = document.createElement('textarea');
+    campo.value = texto;
+    campo.setAttribute('readonly', '');
+    campo.style.position = 'fixed';
+    campo.style.opacity = '0';
+    document.body.appendChild(campo);
+    campo.select();
+    var ok = false;
+    try { ok = document.execCommand('copy'); } catch (err) { ok = false; }
+    document.body.removeChild(campo);
+    avisar(ok);
+  });
+
+  /* ---- Confirmación antes de una acción que no se deshace -----------------
+     Va en el formulario, no en el botón: así protege también los envíos
+     hechos con Enter desde un campo.                                      */
+  $$('form[data-confirmar]').forEach(function (formulario) {
+    formulario.addEventListener('submit', function (e) {
+      if (!window.confirm(formulario.getAttribute('data-confirmar'))) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+      }
+    });
+  });
+
+  /* ---- Pestañas -----------------------------------------------------------
+     Sin JavaScript se ven todos los paneles uno debajo de otro, que sigue
+     siendo perfectamente utilizable: la clase que los oculta la pone este
+     guion, no el servidor.                                                */
+  $$('[data-pestanas]').forEach(function (grupo) {
+    var botones = $$('[data-pestana]', grupo);
+    if (!botones.length) return;
+
+    var paneles = botones.map(function (b) {
+      return document.getElementById(b.getAttribute('data-pestana'));
+    });
+
+    var mostrar = function (indice) {
+      botones.forEach(function (boton, i) {
+        var activo = i === indice;
+        boton.classList.toggle('is-active', activo);
+        boton.setAttribute('aria-selected', String(activo));
+        boton.tabIndex = activo ? 0 : -1;
+        if (paneles[i]) paneles[i].hidden = !activo;
+      });
+    };
+
+    botones.forEach(function (boton, i) {
+      boton.addEventListener('click', function () { mostrar(i); });
+      boton.addEventListener('keydown', function (e) {
+        var salto = e.key === 'ArrowRight' ? 1 : (e.key === 'ArrowLeft' ? -1 : 0);
+        if (!salto) return;
+        e.preventDefault();
+        var siguiente = (i + salto + botones.length) % botones.length;
+        botones[siguiente].focus();
+        mostrar(siguiente);
+      });
+    });
+
+    // Si algún panel trae un campo con error, esa es la pestaña que se abre.
+    var conError = paneles.findIndex(function (p) {
+      return p && p.querySelector('.field--error, [aria-invalid="true"]');
+    });
+    mostrar(conError >= 0 ? conError : 0);
+  });
+
   /* ---- Envíos: evitar el doble clic --------------------------------------
      En la puerta del evento, con conexión lenta, la gente pulsa dos veces y
      se generan registros duplicados.                                      */

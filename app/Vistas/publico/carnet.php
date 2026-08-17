@@ -2,12 +2,14 @@
 /**
  * Carnet digital.
  * @var array $credencial @var string $documento @var string $qr
- * @var string $contenidoQr @var array $historial @var array $persona @var array $tema
+ * @var string $contenidoQr @var string $qrAcceso @var string $urlAcceso
+ * @var array $historial @var array $persona @var array $tema @var array $dispositivos
  */
 defined('EVENTOS_TIC') || exit;
 
 $marca = require __DIR__ . '/../parciales/marca.php';
 $rol = (string) $persona['rol'];
+$foto = (string) ($persona['foto'] ?? '') !== '' ? u('/medios/foto/' . (int) $persona['id']) : '';
 guiones('carnet.js');
 ?>
 <div class="view view--medium split--reverse">
@@ -31,7 +33,11 @@ guiones('carnet.js');
 
           <div class="carnet__photo">
             <div>
-              <span class="carnet__photo-empty"><?= e(iniciales((string) $persona['nombre'])) ?></span>
+              <?php if ($foto !== ''): ?>
+                <img src="<?= e($foto) ?>" alt="">
+              <?php else: ?>
+                <span class="carnet__photo-empty"><?= e(iniciales((string) $persona['nombre'])) ?></span>
+              <?php endif; ?>
             </div>
           </div>
 
@@ -66,7 +72,7 @@ guiones('carnet.js');
 
           <div class="carnet__qrbox">
             <?= $qr /* SVG generado por el servidor */ ?>
-            <span class="carnet__qrcap">Escanear para acceso / contacto</span>
+            <span class="carnet__qrcap">Muéstralo para intercambiar contacto</span>
           </div>
 
           <div class="row row--between" style="padding:0 8px">
@@ -112,6 +118,40 @@ guiones('carnet.js');
       otros asistentes.
     </p>
 
+    <?php if ($qrAcceso !== ''): ?>
+      <!-- ===== El otro QR: el que abre la sesión =====================
+           Va aparte del carnet y con otro color a propósito. El del reverso
+           se enseña; este es una llave. Confundirlos es justo lo que hacía
+           que escanear el propio carnet terminara en «identifícate». -->
+      <div class="card card--acceso no-print">
+        <div class="card__head">
+          <span>Mi QR de acceso</span>
+          <span class="tag">Personal</span>
+        </div>
+        <div class="card__body qr-acceso">
+          <div class="qr-acceso__code"><?= $qrAcceso /* SVG generado por el servidor */ ?></div>
+          <div class="stack stack--3">
+            <p class="help" style="margin:0">
+              Escanéalo con la cámara de cualquier teléfono y entrarás a tu cuenta sin
+              escribir nada: ni correo, ni código, ni contraseña. Sirve para volver a tu
+              carnet desde otro dispositivo, o si perdiste la sesión.
+            </p>
+            <p class="help" style="margin:0;color:var(--c-title)">
+              <strong>No lo compartas ni lo publiques.</strong> Quien lo escanee entra como tú.
+              El del reverso del carnet sí se puede enseñar: ese solo intercambia contacto.
+            </p>
+            <div class="row">
+              <a class="btn btn--sm" href="<?= e(u('/medios/qr/acceso.svg')) ?>"
+                 download="qr-acceso.svg">Descargar</a>
+              <button class="btn btn--sm" type="button" data-copiar="<?= e($urlAcceso) ?>">
+                Copiar el enlace
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    <?php endif; ?>
+
     <div class="card">
       <div class="card__head"><span>Resumen del registro</span></div>
       <div class="card__body--tight">
@@ -149,18 +189,53 @@ guiones('carnet.js');
       <div class="card__head"><span>Qué viaja en el QR</span></div>
       <div class="card__body stack stack--3">
         <p class="help">
-          El código no contiene datos personales: solo un identificador que la plataforma
-          resuelve. Si alguien fotografía tu carnet, no obtiene tu identificación ni tu
-          caracterización.
+          El código del carnet no contiene datos personales: solo un identificador que la
+          plataforma resuelve. Si alguien fotografía tu carnet, no obtiene tu identificación
+          ni tu caracterización.
         </p>
         <div class="sql-preview" style="max-height:none"><?= e($contenidoQr) ?></div>
       </div>
     </div>
 
+    <?php if ($dispositivos): ?>
+      <div class="card no-print">
+        <div class="card__head">
+          <span>Dispositivos recordados</span>
+          <span class="muted"><?= e((string) count($dispositivos)) ?></span>
+        </div>
+        <div class="card__body stack stack--3">
+          <p class="help">
+            En estos teléfonos o computadores no te volvemos a pedir el código: la plataforma
+            reconoce el dispositivo y abre tu sesión sola.
+          </p>
+          <div class="card__body--tight" style="padding:0">
+            <?php foreach ($dispositivos as $d): ?>
+              <div class="kv">
+                <span class="kv__k"><?= e(navegadorLegible((string) $d['agente'])) ?></span>
+                <span class="muted" style="font-size:12px">
+                  <?= e(fecha((string) $d['ultimo_uso'])) ?>
+                </span>
+              </div>
+            <?php endforeach; ?>
+          </div>
+          <form method="post" action="<?= e(u('/carnet/dispositivos')) ?>"
+                data-confirmar="Se cerrará tu sesión en todos los dispositivos y tu QR de acceso actual dejará de servir. ¿Continuar?">
+            <?= testigo() ?>
+            <button class="btn btn--sm btn--danger" type="submit">
+              Cerrar sesión en todos y renovar mi QR
+            </button>
+          </form>
+          <p class="help" style="margin:0">
+            Úsalo si perdiste el teléfono o si compartiste tu QR de acceso por error.
+          </p>
+        </div>
+      </div>
+    <?php endif; ?>
+
     <div class="row no-print">
       <a class="btn btn--primary" href="<?= e(u('/checkin')) ?>">Registrar mi ingreso</a>
       <a class="btn" href="<?= e(u('/contactos')) ?>">Mis contactos</a>
-      <a class="btn" href="<?= e(u('/agenda')) ?>">Ver agenda</a>
+      <a class="btn" href="<?= e(u('/preregistro')) ?>">Mis datos</a>
     </div>
   </div>
 

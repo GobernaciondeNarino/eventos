@@ -42,6 +42,41 @@ final class Medios
         Respuesta::archivo($ruta, $tipo, true);
     }
 
+    /**
+     * La fotografía de una persona.
+     *
+     * La ve su dueño y la ve el equipo organizador. Nadie más: el id es un
+     * número correlativo, así que sin esta comprobación bastaría con contar
+     * desde uno para descargar la cara de todos los asistentes.
+     */
+    public function foto(Peticion $peticion, array $parametros): void
+    {
+        $id = (int) $parametros['persona'];
+
+        $yo = Guardia::personaActual();
+        $equipo = Guardia::equipoOperativo();
+        $esDelEquipo = $equipo !== null && Guardia::tieneRol($equipo, 'consulta');
+
+        if (($yo === null || (int) $yo['id'] !== $id) && !$esDelEquipo) {
+            Respuesta::error(404, 'Sin fotografía', 'No hay ninguna imagen en esa dirección.');
+        }
+
+        $persona = ($yo !== null && (int) $yo['id'] === $id)
+            ? $yo
+            : \App\Modelos\Persona::porId($id);
+
+        $archivo = (string) ($persona['foto'] ?? '');
+        if ($persona === null || $archivo === '') {
+            Respuesta::error(404, 'Sin fotografía', 'Esta persona no tiene foto cargada.');
+        }
+
+        $tipo = (string) ($persona['foto_tipo'] ?? '') ?: 'image/jpeg';
+
+        // basename() aunque el nombre lo ponga el servidor: es la barrera que
+        // impide que una fila manipulada en la base saque archivos del árbol.
+        Respuesta::archivo(RAIZ . '/almacen/fotos/' . basename($archivo), $tipo, true);
+    }
+
     /** QR del carnet propio, como archivo SVG suelto. */
     public function qrCarnet(Peticion $peticion): void
     {
@@ -50,6 +85,33 @@ final class Medios
 
         $svg = Qr::svg(Credencial::urlQr($credencial), [
             'nivel' => 'Q', 'silencio' => 4, 'titulo' => 'Código de mi credencial',
+        ]);
+
+        header('Content-Type: image/svg+xml; charset=utf-8');
+        header('Cache-Control: private, no-store');
+        header('X-Content-Type-Options: nosniff');
+        echo $svg;
+        exit;
+    }
+
+    /**
+     * El QR personal de acceso, como archivo suelto.
+     *
+     * Es el que abre la sesión de su dueño, así que sale con «no-store»: no
+     * puede quedarse en la caché de un proxy compartido ni en el disco del
+     * teléfono como una imagen más.
+     */
+    public function qrAcceso(Peticion $peticion): void
+    {
+        if (!\App\Nucleo\Autenticacion::activo('qr')) {
+            Respuesta::error(404, 'Sin código de acceso',
+                'La organización no tiene encendido el acceso por QR.');
+        }
+
+        $persona = Guardia::personaActual();
+
+        $svg = Qr::svg(Credencial::urlAcceso((int) $persona['id']), [
+            'nivel' => 'Q', 'silencio' => 4, 'titulo' => 'Mi código de acceso',
         ]);
 
         header('Content-Type: image/svg+xml; charset=utf-8');

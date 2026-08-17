@@ -332,8 +332,17 @@ comprobar('y todavía no escribe config/config.php',
 $html = $instalador->post('/instalar', ['accion' => 'paso3', 'modo' => 'limpio']);
 comprobar('paso 3 → 4', str_contains($html, 'Cuenta administradora'));
 
+// El número sale del propio esquema, no de una constante escrita a mano:
+// agregar una tabla no debería romper una prueba que no habla de ella.
+if (!defined('EVENTOS_TIC')) {
+    define('EVENTOS_TIC', true);
+}
+require_once $RAIZ . '/app/Esquema.php';
+$esperadas = count(App\Esquema::nombres());
+
 $tablas = $pdo->query('SHOW TABLES')->fetchAll(PDO::FETCH_COLUMN);
-comprobar('creó las 16 tablas del esquema', count($tablas) === 16, count($tablas) . ' encontradas');
+comprobar("creó las $esperadas tablas del esquema", count($tablas) === $esperadas,
+    count($tablas) . ' encontradas');
 comprobar('respetó el prefijo', str_starts_with((string) $tablas[0], $BD['prefijo']), (string) $tablas[0]);
 
 $html = $instalador->post('/instalar', [
@@ -517,8 +526,8 @@ comprobar('y no ofrece la opción que borra datos',
 // El paso 3 tiene que ver las tablas que hay. Cuando no las veía, anunciaba
 // «no hay ninguna tabla» y preseleccionaba la instalación limpia sobre una base
 // con datos dentro.
-comprobar('ve las 16 tablas que ya existen',
-    str_contains($html, 'Ya existen 16 tablas'),
+comprobar("ve las $esperadas tablas que ya existen",
+    str_contains($html, "Ya existen $esperadas tablas"),
     str_contains($html, 'No hay ninguna tabla') ? 'dijo que no había ninguna' : '');
 
 // Se quita una columna a mano para comprobar el camino de actualización: al

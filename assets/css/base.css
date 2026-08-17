@@ -217,8 +217,37 @@ option { background: var(--c-surface); color: var(--c-title); }
   .topbar { display: flex; }
   .tabbar { display: flex; }
   .main { padding: var(--sp-5) var(--sp-3) 118px; }
-  .grid-2, .grid-3, .grid-4, .split, .split--reverse { grid-template-columns: 1fr !important; }
+
+  /* .split--balanced faltaba en esta lista, y es la que arma la portada.
+     El resultado era que en el celular la portada seguía en dos columnas de
+     ~160 px: el titular partido letra a letra y la tarjeta de acceso
+     aplastada contra el borde. Todas las rejillas de la plataforma pasan a
+     una sola columna aquí; ninguna excepción. */
+  .grid-2, .grid-3, .grid-4,
+  .split, .split--reverse, .split--balanced { grid-template-columns: 1fr !important; }
+
+  .split, .split--reverse, .split--balanced { gap: var(--sp-5) !important; }
+
+  /* El titular de la portada, a una escala que quepa en 360 px. */
+  .hero-title { font-size: clamp(30px, 8.5vw, 46px); }
+
   .is-sticky { position: static !important; }
+}
+
+/* Entre 900 y 620 px las rejillas ya son de una columna, pero .grid-4 —los
+   indicadores del panel— cabe perfectamente en dos y en una queda ridícula. */
+@media (min-width: 621px) and (max-width: 900px) {
+  .grid-4 { grid-template-columns: 1fr 1fr !important; }
+}
+
+/* Teléfono estrecho: lo que sigue en varias columnas dentro de una tarjeta
+   —el par tipo/número de documento, por ejemplo— también se apila, y los
+   botones ocupan el ancho para poder pulsarlos con el pulgar. */
+@media (max-width: 620px) {
+  .grid-2[style*="grid-template-columns"] { grid-template-columns: 1fr !important; }
+  .row--between { gap: var(--sp-3); }
+  .row--between > .row { width: 100%; }
+  .row--between > .row > .btn { flex: 1; justify-content: center; }
 }
 
 /* =========================================================================

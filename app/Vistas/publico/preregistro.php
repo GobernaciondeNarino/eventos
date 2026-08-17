@@ -3,6 +3,7 @@
  * Formulario de preregistro.
  * @var array $valores @var array $errores @var array $departamentos
  * @var array $municipios @var array $categorias @var array $jornadas @var bool $yaRegistrado
+ * @var bool $pideClave @var int $claveMinima @var bool $tieneClave @var string $foto
  */
 defined('EVENTOS_TIC') || exit;
 
@@ -20,7 +21,10 @@ $err = static fn(string $clave): string => (string) ($errores[$clave] ?? '');
 $hayPropuesta = $v('tema') !== '' || !empty($valores['expositor']);
 guiones('preregistro.js');
 ?>
-<form class="view view--narrow stack stack--4" method="post" action="<?= e(u('/preregistro')) ?>" novalidate>
+<!-- enctype: sin esto el navegador manda solo los nombres de los archivos y
+     $_FILES llega vacío, así que la foto se perdía sin ningún error visible. -->
+<form class="view view--narrow stack stack--4" method="post" action="<?= e(u('/preregistro')) ?>"
+      enctype="multipart/form-data" novalidate>
   <?= testigo() ?>
 
   <div class="stack stack--2">
@@ -109,6 +113,90 @@ guiones('preregistro.js');
 
     </div>
   </section>
+
+  <!-- ================= Fotografía del carnet =================
+       capture="user" en el input: en el celular abre directamente la cámara
+       frontal en vez de obligar a buscar la foto en la galería. En el
+       computador se comporta como un selector de archivos normal. -->
+  <section class="card">
+    <div class="card__head">
+      <span>Fotografía del carnet (opcional)</span>
+      <?php if ($foto !== ''): ?><span class="tag tag--ok">Ya tienes una</span><?php endif; ?>
+    </div>
+    <div class="card__body foto-campo">
+      <div class="foto-campo__vista">
+        <?php if ($foto !== ''): ?>
+          <img src="<?= e($foto) ?>" alt="Tu fotografía actual" id="foto-vista">
+        <?php else: ?>
+          <img src="" alt="" id="foto-vista" hidden>
+          <span class="foto-campo__vacia" id="foto-vacia" aria-hidden="true">Sin foto</span>
+        <?php endif; ?>
+      </div>
+
+      <div class="stack stack--3">
+        <p class="help" style="margin:0">
+          Aparecerá en tu carnet digital y en el impreso. Se recorta cuadrada, así que sirve
+          una foto de frente y con la cara centrada. Máximo 6 MB; JPG, PNG o WEBP.
+        </p>
+
+        <div class="field" style="margin:0">
+          <label class="label" for="foto">Elegir o tomar la foto</label>
+          <input class="input" type="file" id="foto" name="foto"
+                 accept="image/jpeg,image/png,image/webp" capture="user"
+                 data-vista-previa="foto-vista">
+        </div>
+
+        <?php if ($foto !== ''): ?>
+          <label class="row" style="gap:9px;cursor:pointer">
+            <input type="checkbox" name="quitar_foto" value="1"
+                   style="width:18px;height:18px;accent-color:var(--c-accent)">
+            <span class="help">Quitar la foto actual y dejar el carnet con mis iniciales</span>
+          </label>
+        <?php endif; ?>
+
+        <p class="help" style="margin:0">
+          La foto solo la ves tú y el equipo organizador. No viaja en ningún código QR.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= Contraseña ================= -->
+  <?php if ($pideClave): ?>
+    <section class="card">
+      <div class="card__head">
+        <span>Contraseña de acceso</span>
+        <?php if ($tieneClave): ?><span class="tag tag--ok">Ya tienes una</span><?php endif; ?>
+      </div>
+      <div class="card__body stack stack--4">
+        <p class="help">
+          <?= $tieneClave
+            ? 'Déjalo en blanco si no quieres cambiarla.'
+            : 'Con ella entras a la plataforma escribiendo tu correo y esta contraseña, '
+              . 'sin esperar ningún código.' ?>
+        </p>
+
+        <div class="grid-2">
+          <div class="field">
+            <label class="label" for="clave">
+              <?= $tieneClave ? 'Nueva contraseña' : 'Contraseña' ?>
+            </label>
+            <input class="input<?= $err('clave') ? ' is-invalid' : '' ?>" type="password"
+                   id="clave" name="clave" autocomplete="new-password"
+                   minlength="<?= e((string) $claveMinima) ?>" maxlength="200">
+            <?php if ($err('clave')): ?><span class="error"><?= e($err('clave')) ?></span><?php endif; ?>
+            <span class="help">Mínimo <?= e((string) $claveMinima) ?> caracteres.</span>
+          </div>
+          <div class="field">
+            <label class="label" for="clave2">Repítela</label>
+            <input class="input<?= $err('clave2') ? ' is-invalid' : '' ?>" type="password"
+                   id="clave2" name="clave2" autocomplete="new-password" maxlength="200">
+            <?php if ($err('clave2')): ?><span class="error"><?= e($err('clave2')) ?></span><?php endif; ?>
+          </div>
+        </div>
+      </div>
+    </section>
+  <?php endif; ?>
 
   <!-- ================= Caracterización ================= -->
   <section class="card">

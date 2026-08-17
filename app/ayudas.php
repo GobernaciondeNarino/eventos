@@ -131,3 +131,49 @@ function activo(string $pantalla, string $actual): string
 {
     return $pantalla === $actual ? ' is-active' : '';
 }
+
+/**
+ * El User-Agent, reducido a algo que una persona reconozca.
+ *
+ * Se usa en la lista de dispositivos recordados, donde lo único que importa es
+ * que su dueño pueda decir «ese es mi celular» o «ese no es mío». Enseñar la
+ * cadena completa —que ocupa dos renglones y menciona cinco navegadores que no
+ * son— no ayudaría a decidir nada.
+ *
+ * El orden de las comprobaciones no es casual: casi todos los navegadores
+ * mienten diciendo también que son Safari y Chrome, así que los más específicos
+ * van primero.
+ */
+function navegadorLegible(?string $agente): string
+{
+    $agente = (string) $agente;
+    if (trim($agente) === '') {
+        return 'Dispositivo sin identificar';
+    }
+
+    $navegador = 'Navegador';
+    foreach ([
+        'Edg' => 'Edge', 'OPR' => 'Opera', 'SamsungBrowser' => 'Samsung Internet',
+        'Firefox' => 'Firefox', 'CriOS' => 'Chrome', 'FxiOS' => 'Firefox',
+        'Chrome' => 'Chrome', 'Safari' => 'Safari',
+    ] as $aguja => $nombre) {
+        if (str_contains($agente, $aguja)) {
+            $navegador = $nombre;
+            break;
+        }
+    }
+
+    $sistema = 'este dispositivo';
+    foreach ([
+        'iPhone' => 'iPhone', 'iPad' => 'iPad', 'Android' => 'Android',
+        'Windows' => 'Windows', 'Mac OS X' => 'Mac', 'Macintosh' => 'Mac',
+        'Linux' => 'Linux',
+    ] as $aguja => $nombre) {
+        if (str_contains($agente, $aguja)) {
+            $sistema = $nombre;
+            break;
+        }
+    }
+
+    return $navegador . ' en ' . $sistema;
+}

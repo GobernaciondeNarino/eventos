@@ -81,9 +81,14 @@ final class Autenticacion
      */
     public static function activos(): array
     {
-        $guardados = Config::obtener('auth_metodos', ['correo']);
+        // Por omisión, correo **y** QR. El QR no necesita nada —ni red del
+        // asistente, ni terceros, ni que el correo salga— y va impreso en su
+        // propio carnet, así que una instalación recién hecha ya tiene dos
+        // puertas en vez de una. Que la instalación por omisión dependiera de
+        // que el correo funcionara es justo lo que dejó un evento sin acceso.
+        $guardados = Config::obtener('auth_metodos', ['correo', 'qr']);
         if (!is_array($guardados)) {
-            $guardados = ['correo'];
+            $guardados = ['correo', 'qr'];
         }
 
         $validos = array_values(array_filter(

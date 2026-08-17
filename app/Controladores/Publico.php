@@ -10,11 +10,14 @@ use App\Modelos\Credencial;
 use App\Modelos\Evento;
 use App\Modelos\Persona;
 use App\Nucleo\App;
+use App\Nucleo\Autenticacion;
 use App\Nucleo\Bd;
 use App\Nucleo\Correo;
 use App\Nucleo\Guardia;
+use App\Nucleo\Imagen;
 use App\Nucleo\Limite;
 use App\Nucleo\Peticion;
+use App\Nucleo\Registro;
 use App\Nucleo\Respuesta;
 use App\Nucleo\Sesion;
 use App\Nucleo\Url;
@@ -27,11 +30,28 @@ final class Publico
     public function inicio(Peticion $peticion): void
     {
         $evento = App::eventoExigido();
+        $jornadas = Evento::jornadas((int) $evento['id']);
+
+        // ¿Ya llegó el evento? El botón principal cambia de texto según eso:
+        // «Preregistrarme» mientras faltan días, «Registrarme» cuando alguna
+        // jornada es hoy o ya empezó. No es un detalle de redacción: quien
+        // llega a la portada el día del evento, en la puerta, busca la palabra
+        // que describe lo que va a hacer ahora.
+        $hoy = date('Y-m-d');
+        $empezado = false;
+        foreach ($jornadas as $j) {
+            if ((string) $j['fecha'] <= $hoy) {
+                $empezado = true;
+                break;
+            }
+        }
 
         Respuesta::vista('publico/inicio', [
-            'titulo'   => 'Ingreso',
-            'pantalla' => 'ingreso',
-            'jornadas' => Evento::jornadas((int) $evento['id']),
+            'titulo'    => 'Ingreso',
+            'pantalla'  => 'ingreso',
+            'jornadas'  => $jornadas,
+            'empezado'  => $empezado,
+            'esHoy'     => Evento::jornadaDeHoy((int) $evento['id']) !== null,
         ]);
     }
 
@@ -97,19 +117,38 @@ final class Publico
                 Limite::registrar('preregistro_ip', $peticion->ip());
                 try {
                     $resultado = Persona::registrar((int) $evento['id'], $valores);
-                    $this->guardarPropuesta((int) $resultado['id'], $valores, $peticion);
+                    $personaId = (int) $resultado['id'];
+                    $this->guardarPropuesta($personaId, $valores, $peticion);
+
+                    // La contraseña solo se toca si se escribió una. Dejar el
+                    // campo en blanco al corregir los datos conserva la que ya
+                    // había, que es lo que espera cualquiera.
+                    $clave = $peticion->campo('clave');
+                    if ($clave !== '') {
+                        Persona::ponerClave($personaId, $clave);
+                    }
+
+                    // La foto va después de crear la persona porque el nombre
+                    // del archivo lleva su id.
+                    $falloFoto = $this->guardarFoto($peticion, $personaId);
 
                     // Queda con sesión abierta: acaba de demostrar que controla
                     // ese correo solo si venía identificado; si no, el enlace
                     // del carnet le llega al buzón.
                     if ($yo === null) {
-                        Sesion::abrir('asistente', (int) $resultado['id']);
+                        Sesion::abrir('asistente', $personaId);
                         Correo::carnetEmitido(
                             (string) $valores['correo'],
                             (string) $valores['nombre'],
                             (string) $evento['nombre'],
-                            Url::absoluta('/carnet')
+                            Url::absoluta('/carnet'),
+                            Autenticacion::activo('qr') ? Credencial::urlAcceso($personaId) : ''
                         );
+                    }
+
+                    if ($falloFoto !== null) {
+                        Respuesta::redirigir('/carnet',
+                            'Guardamos tus datos, pero la foto no: ' . $falloFoto, 'warn');
                     }
 
                     Respuesta::redirigir('/carnet', $resultado['nueva']
@@ -134,7 +173,45 @@ final class Publico
             'categorias'    => Datos::CATEGORIAS,
             'jornadas'      => Evento::jornadas((int) $evento['id']),
             'yaRegistrado'  => $yo !== null,
+            'pideClave'     => Autenticacion::activo('clave'),
+            'claveMinima'   => Autenticacion::claveMinima(),
+            'tieneClave'    => $yo !== null && Persona::tieneClave($yo),
+            'foto'          => $yo !== null && Persona::tieneFoto($yo)
+                ? u('/medios/foto/' . (int) $yo['id']) : '',
         ]);
+    }
+
+    /**
+     * Guarda la foto del carnet, si la mandaron.
+     *
+     * Va después de crear la persona y a propósito no aborta el preregistro:
+     * la foto es un adorno del carnet y perder un registro entero porque el
+     * teléfono mandó un HEIC que GD no entiende sería desproporcionado. Si
+     * falla, se anota y se devuelve el motivo, y los datos quedan guardados
+     * igual: quien llama compone el aviso.
+     */
+    private function guardarFoto(Peticion $peticion, int $personaId): ?string
+    {
+        if ($peticion->marcado('quitar_foto')) {
+            Persona::quitarFoto($personaId);
+            return null;
+        }
+
+        $archivo = $peticion->archivo('foto');
+        if ($archivo === null) {
+            return null;
+        }
+
+        try {
+            [$nombre, $tipo] = Imagen::guardarFoto($archivo, $personaId);
+            Persona::ponerFoto($personaId, $nombre, $tipo);
+            return null;
+        } catch (\DomainException $e) {
+            return $e->getMessage();
+        } catch (\Throwable $e) {
+            Registro::excepcion($e);
+            return 'No se pudo procesar la imagen en el servidor.';
+        }
     }
 
     private function valoresEnviados(Peticion $peticion): array
@@ -160,6 +237,9 @@ final class Publico
             'dia_preferido'  => $peticion->entero('dia_preferido', 1),
             'duracion'       => $peticion->entero('duracion', 40),
             'requerimientos' => $peticion->campo('requerimientos'),
+            // La contraseña no se devuelve nunca a la pantalla: si el formulario
+            // se vuelve a pintar por un error en otro campo, este se repinta
+            // vacío. Se guarda aparte, fuera de $valores.
         ];
     }
 
@@ -230,6 +310,29 @@ final class Publico
             }
             if (mb_strlen($v['detalle']) > 600) {
                 $errores['detalle'] = 'El detalle no puede pasar de 600 caracteres.';
+            }
+        }
+
+        // Contraseña simple. Solo se valida si el método está encendido y la
+        // persona escribió algo: en blanco significa «no la cambies», y para
+        // quien se registra por primera vez significa que entrará por otro
+        // método —que es legítimo mientras haya alguno más.
+        if (Autenticacion::activo('clave')) {
+            $clave = $peticion->campo('clave');
+            $minima = Autenticacion::claveMinima();
+
+            if ($clave !== '') {
+                if (mb_strlen($clave) < $minima) {
+                    $errores['clave'] = 'La contraseña debe tener al menos ' . $minima . ' caracteres.';
+                } elseif (mb_strlen($clave) > 200) {
+                    $errores['clave'] = 'La contraseña es demasiado larga.';
+                } elseif ($clave !== $peticion->campo('clave2')) {
+                    $errores['clave2'] = 'Las dos contraseñas no coinciden.';
+                }
+            } elseif (!$identificado && count(Autenticacion::activos()) === 1) {
+                // La contraseña es la única puerta del evento: sin ella, esta
+                // persona no podría volver a entrar nunca.
+                $errores['clave'] = 'Elige una contraseña: es la forma de entrar a este evento.';
             }
         }
 

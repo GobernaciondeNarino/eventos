@@ -11,7 +11,7 @@
  */
 defined('EVENTOS_TIC') || exit;
 
-guiones('escaner.js');
+guiones('qr-lector.js', 'escaner.js');
 ?>
 <div class="view view--medium split" style="align-items:start">
 
@@ -77,12 +77,24 @@ guiones('escaner.js');
           <div class="scanner__line"></div>
           <span class="scanner__hint" data-escaner-pista>Apunta al código de la entrada</span>
         </div>
-        <button class="btn btn--primary btn--block btn--lg" type="button" data-escaner-iniciar>
-          Abrir la cámara
-        </button>
+        <div class="stack stack--2">
+          <button class="btn btn--primary btn--block btn--lg" type="button" data-escaner-iniciar>
+            Abrir la cámara
+          </button>
+
+          <!-- Safari en iPhone no siempre entrega el vídeo dentro de un
+               navegador incrustado. Tomar una foto sí funciona siempre, y el
+               código se lee igual. -->
+          <button class="btn btn--block" type="button" data-escaner-foto hidden>
+            Lector desde cámara
+          </button>
+          <input class="sr-only" type="file" accept="image/*" capture="environment"
+                 data-escaner-archivo tabindex="-1" aria-hidden="true">
+        </div>
+
         <p class="help" data-escaner-alterna>
-          También sirve la aplicación de cámara del teléfono: al enfocar el código se abre
-          esta misma plataforma.
+          «Abrir la cámara» lee en vivo. «Lector desde cámara» abre la aplicación de cámara
+          del teléfono para tomar una foto del código, que sirve igual.
         </p>
       </div>
     </div>

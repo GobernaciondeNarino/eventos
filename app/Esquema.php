@@ -15,7 +15,7 @@ use App\Nucleo\Bd;
  */
 final class Esquema
 {
-    public const VERSION = '1.2.0';
+    public const VERSION = '1.3.0';
 
     /**
      * @return array<string, array{nota: string, columnas: array<string,string>, llaves: array<int,string>}>
@@ -97,6 +97,11 @@ final class Esquema
                     // Van aquí y no en una tabla aparte porque son uno por
                     // persona y se leen en cada intento de entrada.
                     'clave_hash'         => "VARCHAR(255) NOT NULL DEFAULT ''",
+                    // Fotografía del carnet. Solo el nombre del archivo en
+                    // almacen/fotos y su tipo real, decidido por el servidor:
+                    // nunca se sirve desde el disco ni se confía en la extensión.
+                    'foto'               => "VARCHAR(80) NOT NULL DEFAULT ''",
+                    'foto_tipo'          => "VARCHAR(40) NOT NULL DEFAULT ''",
                     // Nulable a propósito: con una llave única, dos cadenas
                     // vacías chocarían y la segunda persona sin QR no se podría
                     // guardar. En MySQL los nulos no chocan entre sí.
@@ -269,6 +274,28 @@ final class Esquema
                     'PRIMARY KEY (id)',
                     'KEY idx_sesion_expira (expira_en)',
                     'KEY idx_sesion_sujeto (tipo, sujeto_id)',
+                ],
+            ],
+
+            'dispositivo' => [
+                'nota' => 'Teléfonos desde los que un asistente ya entró. Le evitan volver a pedir el código cada vez.',
+                'columnas' => [
+                    'selector'       => 'CHAR(32) NOT NULL',
+                    'persona_id'     => 'INT UNSIGNED NOT NULL',
+                    // Del validador se guarda solo el hash: quien lea la tabla
+                    // no obtiene cookies utilizables.
+                    'validador_hash' => 'CHAR(64) NOT NULL',
+                    'agente'         => "VARCHAR(255) NOT NULL DEFAULT ''",
+                    'ip'             => 'VARBINARY(16) NULL',
+                    'ultimo_uso'     => 'DATETIME NOT NULL',
+                    'expira_en'      => 'DATETIME NOT NULL',
+                    'creado_en'      => 'DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP',
+                ],
+                'llaves' => [
+                    'PRIMARY KEY (selector)',
+                    'KEY idx_dispositivo_persona (persona_id)',
+                    'KEY idx_dispositivo_expira (expira_en)',
+                    'CONSTRAINT fk_dispositivo_persona FOREIGN KEY (persona_id) REFERENCES {persona} (id) ON DELETE CASCADE',
                 ],
             ],
 

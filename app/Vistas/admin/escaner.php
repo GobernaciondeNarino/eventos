@@ -6,7 +6,7 @@
  */
 defined('EVENTOS_TIC') || exit;
 
-guiones('escaner.js');
+guiones('qr-lector.js', 'escaner.js');
 ?>
 <div class="view view--medium split" style="align-items:start">
 
@@ -92,12 +92,25 @@ guiones('escaner.js');
           <div class="scanner__line"></div>
           <span class="scanner__hint" data-escaner-pista>Lee el QR del reverso del carnet</span>
         </div>
-        <button class="btn btn--primary btn--block btn--lg" type="button" data-escaner-iniciar>
-          Abrir la cámara
-        </button>
+        <div class="stack stack--2">
+          <button class="btn btn--primary btn--block btn--lg" type="button" data-escaner-iniciar>
+            Abrir la cámara
+          </button>
+
+          <!-- La salida cuando el navegador no entrega la cámara en directo
+               —Safari dentro de otra aplicación, un permiso denegado—: se toma
+               una foto con la aplicación de cámara del sistema y la leemos
+               nosotros. El campo va oculto porque el botón es el que se ve. -->
+          <button class="btn btn--block" type="button" data-escaner-foto hidden>
+            Lector desde cámara
+          </button>
+          <input class="sr-only" type="file" accept="image/*" capture="environment"
+                 data-escaner-archivo tabindex="-1" aria-hidden="true">
+        </div>
+
         <p class="help" data-escaner-alterna>
-          Si el navegador no permite la cámara, usa la aplicación de cámara del teléfono:
-          al enfocar el carnet abrirá esta misma pantalla de acreditación.
+          «Abrir la cámara» lee en vivo. «Lector desde cámara» abre la aplicación de cámara
+          del teléfono para tomar una foto del código, que sirve igual.
         </p>
       </div>
     </div>

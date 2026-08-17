@@ -87,6 +87,27 @@ final class Credencial
         return Url::absoluta('/c/' . $credencial['token']);
     }
 
+    /**
+     * El otro QR: el que abre la sesión de su dueño.
+     *
+     * Son dos códigos distintos y conviene no confundirlos nunca:
+     *
+     *   · el de contacto (urlQr) se enseña a cualquiera. Escanearlo no
+     *     identifica a nadie: lleva a intercambiar datos o, si lo escanea el
+     *     equipo, a la ficha de acreditación.
+     *
+     *   · este abre la sesión de la persona en el teléfono que lo escanee. Es
+     *     una credencial, no una tarjeta de presentación, y así se rotula en el
+     *     carnet.
+     *
+     * Que existía solo el primero es la razón de que escanear el propio carnet
+     * acabara en «Escaneaste el carnet de un asistente» en vez de entrar.
+     */
+    public static function urlAcceso(int $personaId): string
+    {
+        return Url::absoluta('/entrar/qr/' . Persona::tokenDeAcceso($personaId));
+    }
+
     public static function revocar(int $personaId): void
     {
         Bd::ejecutar(

@@ -87,6 +87,7 @@ $enrutador->post('/c/{token:token}/asistencia', [Escaneo::class, 'sellarAsistenc
    ========================================================================= */
 $enrutador->get('/carnet', [Carnet::class, 'ver'], 'asistente');
 $enrutador->get('/carnet/imprimir', [Carnet::class, 'imprimir'], 'asistente');
+$enrutador->post('/carnet/dispositivos', [Carnet::class, 'cerrarDispositivos'], 'asistente');
 $enrutador->get('/checkin', [Escaneo::class, 'pantallaCheckin'], 'asistente');
 $enrutador->get('/contactos', [Contactos::class, 'listar'], 'asistente');
 $enrutador->post('/contactos/privacidad', [Contactos::class, 'privacidad'], 'asistente');
@@ -149,5 +150,12 @@ $enrutador->post('/admin/correo/local', [Admin::class, 'usarCorreoLocal'], 'admi
    lo decida el servidor y no la extensión del archivo. Ver docs/SEGURIDAD.md.
    ========================================================================= */
 $enrutador->get('/medios/logo/{evento:num}', [Medios::class, 'logo']);
+
+// Sin guardia en la tabla: la foto de una persona la puede ver ella misma y el
+// equipo organizador, y eso lo decide el propio método. Con un guardia fijo,
+// una de las dos mitades quedaba fuera.
+$enrutador->get('/medios/foto/{persona:num}', [Medios::class, 'foto']);
+
 $enrutador->get('/medios/qr/carnet.svg', [Medios::class, 'qrCarnet'], 'asistente');
+$enrutador->get('/medios/qr/acceso.svg', [Medios::class, 'qrAcceso'], 'asistente');
 $enrutador->get('/medios/qr/dia/{numero:num}.svg', [Medios::class, 'qrDia'], 'admin:operador');

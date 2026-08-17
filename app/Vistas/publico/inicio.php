@@ -1,18 +1,29 @@
 <?php
-/** Portada. @var array $jornadas @var array|null $evento @var array|null $persona */
+/**
+ * Portada.
+ * @var array $jornadas @var array|null $evento @var array|null $persona
+ * @var bool $empezado @var bool $esHoy
+ */
 defined('EVENTOS_TIC') || exit;
 
 $total = count($jornadas);
+
+// El texto del botón principal depende de si el evento ya llegó. Mientras
+// faltan días la acción es preregistrarse; el día de la jornada, registrarse.
+$rotuloAlta = $empezado ? 'REGISTRARME' : 'Preregistrarme';
 ?>
 <div class="view view--medium stack stack--6">
 
   <div class="split--balanced" style="align-items:center">
     <div class="stack stack--5">
-      <span class="kicker">Fase 01 · Preregistro</span>
+      <span class="kicker"><?= $empezado ? 'Evento en curso' : 'Fase 01 · Preregistro' ?></span>
       <h1 class="hero-title">Regístrate una vez.<br><em>Entra <?= $total > 1 ? 'los ' . e((string) $total) . ' días' : 'el día del evento' ?>.</em></h1>
       <p class="lead">
-        Diligencia tus datos antes del evento y el día de la jornada solo escaneas el
-        código de la entrada. Sin filas, sin digitación manual.
+        <?= $empezado
+          ? 'Si aún no te has registrado, hazlo aquí mismo y en un minuto tienes tu carnet '
+            . 'con el código QR. Si ya lo hiciste, entra y recupéralo.'
+          : 'Diligencia tus datos antes del evento y el día de la jornada solo escaneas el '
+            . 'código de la entrada. Sin filas, sin digitación manual.' ?>
       </p>
 
       <?php if ($persona !== null): ?>
@@ -20,27 +31,38 @@ $total = count($jornadas);
           <div class="card__head"><span>Ya estás registrado</span></div>
           <div class="card__body stack stack--3">
             <p class="help">Tu carnet está listo, <?= e($persona['nombre']) ?>.</p>
-            <div class="row">
-              <a class="btn btn--primary" href="<?= e(u('/carnet')) ?>">Ver mi carnet</a>
-              <a class="btn" href="<?= e(u('/checkin')) ?>">Registrar ingreso</a>
+            <div class="stack stack--2">
+              <a class="btn btn--primary btn--block btn--lg" href="<?= e(u('/carnet')) ?>">Ver mi carnet</a>
+              <a class="btn btn--block<?= $esHoy ? ' btn--lg' : '' ?>" href="<?= e(u('/checkin')) ?>">
+                <?= $esHoy ? 'Registrar mi ingreso de hoy' : 'Registrar ingreso' ?>
+              </a>
             </div>
           </div>
         </div>
       <?php else: ?>
         <div class="card" style="max-width:440px">
-          <div class="card__head"><span>Acceso por correo</span></div>
-          <div class="card__body stack stack--3">
+          <div class="card__head"><span><?= $empezado ? 'Registro' : 'Preregistro' ?></span></div>
+          <div class="card__body stack stack--4">
             <form method="get" action="<?= e(u('/preregistro')) ?>" class="stack stack--3">
               <div class="field">
                 <label class="label" for="correo">Correo electrónico</label>
                 <input class="input" type="email" id="correo" name="correo"
                        placeholder="nombre@entidad.gov.co" autocomplete="email" inputmode="email" required>
               </div>
-              <button class="btn btn--primary btn--block btn--lg" type="submit">Preregistrarme</button>
+              <button class="btn btn--primary btn--block btn--lg" type="submit"><?= e($rotuloAlta) ?></button>
             </form>
-            <p class="help">
-              ¿Ya te registraste antes?
-              <a href="<?= e(u('/entrar')) ?>">Entra con tu correo</a> y recupera tu carnet.<br>
+
+            <!-- El ingreso de quien ya se registró tenía el mismo peso visual
+                 que una nota al pie: un enlace en medio de un párrafo de
+                 ayuda. Es la mitad de la gente que llega a esta pantalla, así
+                 que va como botón, igual que el de arriba. -->
+            <div class="stack stack--2">
+              <hr class="divider">
+              <p class="help" style="margin:0">¿Ya te registraste antes?</p>
+              <a class="btn btn--block btn--lg" href="<?= e(u('/entrar')) ?>">Entrar y ver mi carnet</a>
+            </div>
+
+            <p class="help" style="margin:0">
               <a href="<?= e(u('/admin/entrar')) ?>" class="mono"
                  style="font-size:11px;letter-spacing:.12em;text-transform:uppercase">Soy del equipo organizador ›</a>
             </p>
