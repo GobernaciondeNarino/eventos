@@ -163,6 +163,163 @@ final class Evento
         return [true, ''];
     }
 
+    /**
+     * Agrega una jornada al final del evento.
+     *
+     * El número es el siguiente libre y la fecha la elige quien la agrega: los
+     * eventos reales no siempre son días seguidos —dos jornadas y una tercera
+     * de cierre a la semana siguiente— y forzar la continuidad obligaba a
+     * reinstalar el evento entero.
+     *
+     * Devuelve el número asignado.
+     */
+    public static function agregarJornada(int $eventoId, string $fecha, string $abre = '', string $cierra = ''): int
+    {
+        if (!self::fechaValida($fecha)) {
+            throw new \DomainException('Esa fecha no es válida.');
+        }
+
+        $repetida = Bd::fila(
+            'SELECT numero FROM {evento_dia} WHERE evento_id = ? AND fecha = ?',
+            [$eventoId, $fecha]
+        );
+        if ($repetida) {
+            throw new \DomainException(
+                'Ya existe la jornada del ' . fecha($fecha) . ' (día ' . $repetida['numero'] . ').'
+            );
+        }
+
+        $siguiente = (int) (Bd::valor(
+            'SELECT MAX(numero) FROM {evento_dia} WHERE evento_id = ?',
+            [$eventoId]
+        ) ?? 0) + 1;
+
+        if ($siguiente > 60) {
+            throw new \DomainException('Un evento no puede tener más de 60 jornadas.');
+        }
+
+        $columnas = [
+            'evento_id' => $eventoId,
+            'numero'    => $siguiente,
+            'fecha'     => $fecha,
+            'token'     => Cripto::token(16),
+        ];
+        if (preg_match('/^\d{2}:\d{2}$/', $abre)) {
+            $columnas['abre_a'] = $abre . ':00';
+        }
+        if (preg_match('/^\d{2}:\d{2}$/', $cierra)) {
+            $columnas['cierra_a'] = $cierra . ':00';
+        }
+
+        Bd::insertar('evento_dia', $columnas);
+
+        // El contador del evento tiene que seguir cuadrando: es lo que se
+        // muestra en la portada y lo que usa el selector de día preferido del
+        // formulario de expositores.
+        Bd::ejecutar(
+            'UPDATE {evento} SET jornadas = (SELECT COUNT(*) FROM {evento_dia} WHERE evento_id = ?) WHERE id = ?',
+            [$eventoId, $eventoId]
+        );
+
+        Bitacora::registrar('jornada_agregada', 'evento_dia', $siguiente, [
+            'evento' => $eventoId,
+            'fecha'  => $fecha,
+        ]);
+        return $siguiente;
+    }
+
+    /**
+     * Elimina una jornada.
+     *
+     * No se borra una jornada con ingresos registrados: esos registros son la
+     * base de los reportes de asistencia del evento y borrarlos en cascada
+     * desde una pantalla de configuración sería demasiado fácil. Quien de
+     * verdad quiera hacerlo tiene que quitar antes los ingresos.
+     *
+     * Los números NO se renumeran. El número está impreso en el pliego de la
+     * puerta y sale en el historial de cada asistente; corrigiéndolo, el «día
+     * 3» de un carnet pasaría a señalar otra fecha.
+     */
+    public static function eliminarJornada(int $eventoId, int $numero): void
+    {
+        $jornada = self::jornada($eventoId, $numero);
+        if (!$jornada) {
+            throw new \DomainException('Esa jornada no existe.');
+        }
+
+        $ingresos = (int) Bd::valor(
+            'SELECT COUNT(*) FROM {asistencia} WHERE evento_dia_id = ?',
+            [(int) $jornada['id']]
+        );
+        if ($ingresos > 0) {
+            throw new \DomainException(
+                'El día ' . $numero . ' ya tiene ' . $ingresos . ' ingreso' . ($ingresos === 1 ? '' : 's')
+                . ' registrado' . ($ingresos === 1 ? '' : 's') . '. No se puede eliminar sin perder esos datos.'
+            );
+        }
+
+        $charlas = (int) Bd::valor(
+            'SELECT COUNT(*) FROM {charla} WHERE evento_dia_id = ?',
+            [(int) $jornada['id']]
+        );
+        if ($charlas > 0) {
+            throw new \DomainException(
+                'El día ' . $numero . ' tiene ' . $charlas . ' charla' . ($charlas === 1 ? '' : 's')
+                . ' en la agenda. Muévelas de día antes de eliminarlo.'
+            );
+        }
+
+        if (count(self::jornadas($eventoId)) <= 1) {
+            throw new \DomainException('Un evento tiene que quedarse con al menos una jornada.');
+        }
+
+        Bd::ejecutar('DELETE FROM {evento_dia} WHERE id = ?', [(int) $jornada['id']]);
+        Bd::ejecutar(
+            'UPDATE {evento} SET jornadas = (SELECT COUNT(*) FROM {evento_dia} WHERE evento_id = ?) WHERE id = ?',
+            [$eventoId, $eventoId]
+        );
+
+        Bitacora::registrar('jornada_eliminada', 'evento_dia', $numero, [
+            'evento' => $eventoId,
+            'fecha'  => (string) $jornada['fecha'],
+        ]);
+    }
+
+    /** Cambia la fecha y el horario de una jornada. */
+    public static function ajustarJornada(int $eventoId, int $numero, string $fecha, string $abre, string $cierra): void
+    {
+        $jornada = self::jornada($eventoId, $numero);
+        if (!$jornada) {
+            throw new \DomainException('Esa jornada no existe.');
+        }
+        if (!self::fechaValida($fecha)) {
+            throw new \DomainException('Esa fecha no es válida.');
+        }
+
+        $choque = Bd::fila(
+            'SELECT numero FROM {evento_dia} WHERE evento_id = ? AND fecha = ? AND numero <> ?',
+            [$eventoId, $fecha, $numero]
+        );
+        if ($choque) {
+            throw new \DomainException('El día ' . $choque['numero'] . ' ya está en esa fecha.');
+        }
+
+        Bd::ejecutar(
+            'UPDATE {evento_dia} SET fecha = ?, abre_a = ?, cierra_a = ? WHERE id = ?',
+            [
+                $fecha,
+                preg_match('/^\d{2}:\d{2}$/', $abre) ? $abre . ':00' : (string) $jornada['abre_a'],
+                preg_match('/^\d{2}:\d{2}$/', $cierra) ? $cierra . ':00' : (string) $jornada['cierra_a'],
+                (int) $jornada['id'],
+            ]
+        );
+
+        Bitacora::registrar('jornada_ajustada', 'evento_dia', $numero, [
+            'evento' => $eventoId,
+            'fecha'  => $fecha,
+        ]);
+    }
+
     /** Cambia el token de una jornada: el código impreso anterior deja de servir. */
     public static function rotarToken(int $eventoId, int $numero): string
     {

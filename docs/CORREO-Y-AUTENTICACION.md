@@ -32,7 +32,13 @@ salir, **nadie podía entrar**. No fue un problema de correo: fue un punto únic
 **Recomendación firme:** deja encendidos al menos **dos** métodos, y que uno sea el **QR de
 acceso**, que no depende de red, ni de terceros, ni de que la persona recuerde nada.
 
-Se configura en **Administración → Autenticación**.
+Se configura en **Administración → Autenticación**, que está organizada por pestañas: una por
+método, con su configuración y sus instrucciones juntas. Cada pestaña guarda lo suyo, así que
+tocar WhatsApp no altera lo que tengas puesto en SMS.
+
+Desde la versión 3.1 una instalación nueva viene con **correo y QR encendidos**, no solo
+correo. Es deliberado: que la instalación por omisión dependiera de que el correo saliera es
+justo lo que dejó un evento sin acceso.
 
 ---
 
@@ -49,17 +55,42 @@ Se configura en **Administración → Autenticación**.
 
 ### QR de acceso — no hay nada que configurar
 
-Se genera solo para cada persona. Aparece en su carnet, **junto al QR de contacto y distinto de
-él**: el de contacto se enseña a cualquiera para intercambiar datos; el de acceso abre la sesión
-de su dueño. Que fueran el mismo convertiría cada foto de una escarapela en una llave.
+Se genera solo para cada persona. Aparece en su carnet, en su propia tarjeta y **distinto del
+QR de contacto**: el de contacto se enseña a cualquiera para intercambiar datos; el de acceso
+abre la sesión de su dueño. Que fueran el mismo convertiría cada foto de una escarapela en una
+llave.
 
 Se escanea con la cámara del teléfono, sin aplicación. Si alguien pierde la escarapela, se
-regenera su código y el anterior deja de servir en el acto.
+regenera su código desde **Registros → botón de perfil → «Anular y generar otro»**, y el
+anterior deja de servir en el acto.
+
+El enlace de bienvenida que llega por correo también usa este código, así que abrir ese correo
+desde el teléfono entra directo, sin pedir nada.
 
 ### Contraseña simple
 
 La persona la elige en el preregistro; se guarda con Argon2id. Quien se preregistró **antes** de
-encender el método no tiene contraseña: entrará por otro y podrá ponerla después.
+encender el método no tiene contraseña: entrará por otro y podrá ponerla después desde
+*Mis datos*.
+
+**Su contraseña no se puede consultar.** En la base hay un hash Argon2id, que es de un solo
+sentido; si se pudiera leer, quien copiara la tabla tendría en claro las de todos. Cuando
+alguien no la recuerda, la ficha de *Registros* ofrece **generar una nueva** —se muestra una
+sola vez, sin letras ni números que se confundan al dictarlos— o **enseñarle su QR de acceso**,
+que entra sin escribir nada.
+
+### El teléfono queda recordado
+
+Independiente de los cinco métodos: cuando alguien entra por cualquiera de ellos, la plataforma
+deja una marca en ese dispositivo que dura seis meses. La próxima vez no le vuelve a pedir
+nada, aunque hayan pasado los treinta días de la sesión.
+
+Es lo que resuelve el caso más frecuente: la persona se preregistra en el navegador y días
+después abre el enlace desde el correo o desde WhatsApp, que usan su propio almacén de cookies.
+Sin la marca acababa en «identifícate» con el carnet ya emitido.
+
+Cada quien puede retirar sus dispositivos desde su carnet, y un administrador desde
+*Registros*. Salir de la sesión también los olvida.
 
 ---
 

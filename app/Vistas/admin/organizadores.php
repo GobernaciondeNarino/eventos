@@ -4,7 +4,7 @@ defined('EVENTOS_TIC') || exit;
 
 use App\Modelos\Usuario;
 
-$columnas = 'grid-template-columns:1.4fr 1.2fr 1fr .9fr .9fr';
+$columnas = 'grid-template-columns:1.4fr 1.35fr 1fr .7fr 1.15fr';
 $permisos = [
     ['Administrador', ['Configurar el evento y la identidad', 'Aprobar propuestas',
                        'Exportar con caracterización', 'Gestionar el equipo']],
@@ -38,9 +38,33 @@ $permisos = [
                 <strong style="font-weight:500;color:var(--c-title)"><?= e($u['nombre']) ?></strong>
                 <span class="mono muted" style="font-size:11px"><?= e($u['correo']) ?></span>
               </div>
-              <span><span class="tag <?= $u['rol'] === 'administrador' ? 'tag--warn' : 'tag--mute' ?>">
-                <?= e(ucfirst((string) $u['rol'])) ?>
-              </span></span>
+              <?php if ((int) $u['id'] === (int) $usuario['id']): ?>
+                <!-- El rol propio no se cambia desde aquí: quitárselo uno mismo
+                     es la forma más rápida de quedarse fuera del panel sin
+                     nadie que pueda devolvérselo. -->
+                <span><span class="tag <?= $u['rol'] === 'administrador' ? 'tag--warn' : 'tag--mute' ?>">
+                  <?= e(ucfirst((string) $u['rol'])) ?> · tú
+                </span></span>
+              <?php else: ?>
+                <form method="post" action="<?= e(u('/admin/organizadores/rol')) ?>"
+                      data-confirmar="Se cambiará el rol de <?= e($u['nombre']) ?> y tendrá que volver a entrar. ¿Continuar?">
+                  <?= testigo() ?>
+                  <input type="hidden" name="usuario" value="<?= (int) $u['id'] ?>">
+                  <label class="sr-only" for="rol-<?= (int) $u['id'] ?>">Rol de <?= e($u['nombre']) ?></label>
+                  <div class="row" style="flex-wrap:nowrap;gap:6px">
+                    <select class="select select--sm" id="rol-<?= (int) $u['id'] ?>" name="rol">
+                      <?php foreach ([
+                        'administrador' => 'Administrador',
+                        'operador'      => 'Operador',
+                        'consulta'      => 'Consulta',
+                      ] as $clave => $etiqueta): ?>
+                        <option value="<?= e($clave) ?>" <?= $u['rol'] === $clave ? 'selected' : '' ?>><?= e($etiqueta) ?></option>
+                      <?php endforeach; ?>
+                    </select>
+                    <button class="btn btn--sm" type="submit">Cambiar</button>
+                  </div>
+                </form>
+              <?php endif; ?>
               <span style="color:var(--c-text)"><?= e($u['puesto'] ?: '—') ?></span>
               <span class="mono accent"><?= e(numero($u['escaneos_hoy'])) ?></span>
               <div class="row" style="gap:6px">

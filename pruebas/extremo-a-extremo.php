@@ -1251,6 +1251,269 @@ comprobar('y una pantalla sin guion propio no arrastra ninguno',
     str_contains($html, 'assets/js/app.js')
     && !preg_match('#assets/js/(escaner|identidad|preregistro)\.js#', $html));
 
+titulo('QR de acceso y dispositivo recordado');
+
+// El método QR tiene que venir encendido de fábrica: si dependiera de que un
+// administrador lo active, la instalación recién hecha seguiría colgando de
+// que el correo salga, que es el fallo que se quiso quitar de raíz.
+$configActual = leerConfig($RAIZ);
+comprobar('el QR de acceso viene encendido de fábrica',
+    in_array('qr', (array) ($configActual['auth_metodos'] ?? ['correo', 'qr']), true),
+    json_encode($configActual['auth_metodos'] ?? null));
+
+$html = $maria->get('/carnet');
+comprobar('el carnet trae el QR de acceso, aparte del de contacto',
+    str_contains($html, 'Mi QR de acceso'));
+comprobar('y avisa de que no se comparte',
+    str_contains($html, 'No lo compartas'));
+
+preg_match('#/entrar/qr/([a-f0-9]{32})#', $html, $m);
+$tokenAcceso = $m[1] ?? '';
+comprobar('el token de acceso son 128 bits', strlen($tokenAcceso) === 32, $tokenAcceso);
+comprobar('el de acceso y el de contacto son distintos',
+    $tokenAcceso !== '' && $tokenAcceso !== $tokenCarnet);
+
+// Un teléfono nuevo: sin cookies, como quien abre el enlace desde el correo.
+$telefono = new Cliente($BASE);
+$html = $telefono->get('/c/' . $tokenCarnet);
+comprobar('el QR de contacto sigue sin identificar a nadie',
+    str_contains($html, 'Escaneaste el carnet'),
+    substr(strip_tags($html), 0, 90));
+
+$html = $telefono->get('/entrar/qr/' . $tokenAcceso);
+comprobar('el QR de acceso sí abre la sesión', str_contains($html, 'Tu carnet digital'),
+    substr(strip_tags($html), 0, 90));
+comprobar('y entra como su dueño', str_contains($html, 'María Fernanda Zambrano'));
+comprobar('dejó la marca del dispositivo', $telefono->cookie('evtic_disp') !== '');
+comprobar('la marca lleva selector y validador',
+    (bool) preg_match('/^[a-f0-9]{32}\.[a-f0-9]{64}$/', urldecode($telefono->cookie('evtic_disp'))));
+
+$guardadas = (int) $pdo->query("SELECT COUNT(*) FROM {$BD['prefijo']}dispositivo")->fetchColumn();
+comprobar('quedó anotado en la base', $guardadas >= 1, (string) $guardadas);
+
+[$selector, $validador] = explode('.', urldecode($telefono->cookie('evtic_disp')));
+$filaDisp = $pdo->query("SELECT * FROM {$BD['prefijo']}dispositivo
+                          WHERE selector = '$selector'")->fetch(PDO::FETCH_ASSOC);
+comprobar('del validador solo se guarda el hash',
+    is_array($filaDisp)
+    && (string) $filaDisp['validador_hash'] === hash('sha256', $validador)
+    && !str_contains((string) json_encode($filaDisp), $validador));
+
+// Un token de acceso que no existe no puede identificar a nadie.
+$intruso = new Cliente($BASE);
+$intruso->get('/entrar/qr/' . str_repeat('a', 32));
+comprobar('un token inventado no entra', $intruso->codigo === 404, (string) $intruso->codigo);
+
+// Y ahora lo importante: se borra la cookie de sesión pero se deja la del
+// dispositivo, que es exactamente lo que pasa a los treinta días.
+$pdo->exec("DELETE FROM {$BD['prefijo']}sesion WHERE tipo = 'asistente'");
+$html = $telefono->get('/carnet');
+comprobar('sin sesión, el dispositivo recordado la vuelve a abrir',
+    str_contains($html, 'María Fernanda Zambrano'), substr(strip_tags($html), 0, 90));
+
+// Salir tiene que significar salir: la marca del dispositivo también se va.
+$telefono->post('/salir', []);
+// PHP borra una cookie mandándola con el valor «deleted» y fecha pasada, así
+// que lo que se comprueba es que ya no tenga la forma de una marca válida.
+comprobar('al salir se olvida el dispositivo',
+    !preg_match('/^[a-f0-9]{32}\.[a-f0-9]{64}$/', urldecode($telefono->cookie('evtic_disp'))),
+    $telefono->cookie('evtic_disp'));
+comprobar('y la fila desaparece de la base',
+    (int) $pdo->query("SELECT COUNT(*) FROM {$BD['prefijo']}dispositivo
+                        WHERE selector = '$selector'")->fetchColumn() === 0);
+$html = $telefono->get('/carnet');
+comprobar('y ya no se entra solo', !str_contains($html, 'María Fernanda Zambrano'));
+
+// Un validador equivocado con un selector real es un intento de robo: se borra
+// la fila entera, no solo se rechaza.
+$otroTelefono = new Cliente($BASE);
+$otroTelefono->get('/entrar/qr/' . $tokenAcceso);
+[$sel2] = explode('.', urldecode($otroTelefono->cookie('evtic_disp')));
+
+// Se cambia el hash guardado: para el servidor, la cookie que trae ese teléfono
+// pasa a ser un validador equivocado sobre un selector real, que es la forma que
+// tiene una cookie robada y modificada. La fila entera tiene que desaparecer.
+$pdo->exec("UPDATE {$BD['prefijo']}dispositivo SET validador_hash = REPEAT('c', 64)
+             WHERE selector = '$sel2'");
+$pdo->exec("DELETE FROM {$BD['prefijo']}sesion WHERE tipo = 'asistente'");
+$otroTelefono->get('/carnet');
+$quedan = (int) $pdo->query("SELECT COUNT(*) FROM {$BD['prefijo']}dispositivo
+                              WHERE selector = '$sel2'")->fetchColumn();
+comprobar('un validador que no cuadra invalida el dispositivo entero', $quedan === 0, (string) $quedan);
+
+/* =========================================================================
+   Fotografía del carnet
+   ========================================================================= */
+titulo('Fotografía');
+
+$html = $maria->get('/preregistro');
+comprobar('«Mis datos» ofrece cargar la fotografía', str_contains($html, 'Fotografía del carnet'));
+comprobar('el formulario admite archivos', str_contains($html, 'multipart/form-data'));
+comprobar('acepta solo imágenes de mapa de bits',
+    str_contains($html, 'accept="image/jpeg,image/png,image/webp"'));
+comprobar('no acepta SVG, que puede llevar guiones dentro',
+    !str_contains($html, 'image/svg'));
+
+/* =========================================================================
+   Portada: el botón cambia con la fecha del evento
+   ========================================================================= */
+titulo('Portada');
+
+$anonimo = new Cliente($BASE);
+$pdo->exec("UPDATE {$BD['prefijo']}evento_dia SET fecha = DATE_ADD(CURDATE(), INTERVAL 30 DAY) WHERE numero = 1");
+$pdo->exec("UPDATE {$BD['prefijo']}evento_dia SET fecha = DATE_ADD(CURDATE(), INTERVAL 31 DAY) WHERE numero = 2");
+$html = $anonimo->get('/');
+comprobar('antes del evento el botón dice «Preregistrarme»', str_contains($html, '>Preregistrarme<'));
+comprobar('y no dice «REGISTRARME»', !str_contains($html, '>REGISTRARME<'));
+comprobar('«Entra con tu correo» es un botón y no un enlace suelto',
+    str_contains($html, 'Entrar y ver mi carnet'));
+
+$pdo->exec("UPDATE {$BD['prefijo']}evento_dia SET fecha = CURDATE() WHERE numero = 1");
+$html = $anonimo->get('/');
+comprobar('el día del evento el botón dice «REGISTRARME»', str_contains($html, '>REGISTRARME<'));
+
+/* =========================================================================
+   Panel: ficha, contraseña, rol y jornadas
+   ========================================================================= */
+titulo('Ficha de una persona');
+
+$idMaria = (int) $pdo->query("SELECT id FROM {$BD['prefijo']}persona
+                               WHERE correo = 'mzambrano@narino.gov.co'")->fetchColumn();
+
+$html = $admin->get('/admin/registros');
+comprobar('la tabla trae el botón de perfil',
+    str_contains($html, 'Ver la ficha de María Fernanda Zambrano'));
+
+$html = $admin->get('/admin/registros/' . $idMaria);
+comprobar('la ficha se abre en su propia dirección', $admin->codigo === 200, (string) $admin->codigo);
+comprobar('muestra los datos de la persona', str_contains($html, 'María Fernanda Zambrano'));
+comprobar('dice claramente que la contraseña no se puede ver',
+    str_contains($html, 'no se puede ver'));
+comprobar('y explica por qué', str_contains($html, 'huella irreversible'));
+
+$registrada = (int) $pdo->query("SELECT COUNT(*) FROM {$BD['prefijo']}bitacora
+                                  WHERE accion = 'ficha_consultada'")->fetchColumn();
+comprobar('leer una ficha queda en la bitácora', $registrada >= 1, (string) $registrada);
+
+$html = $admin->post('/admin/registros/clave', ['persona' => (string) $idMaria]);
+preg_match('#letter-spacing:\.14em[^>]*>([A-Z2-9]{10})<#', $html, $m);
+$claveNueva = $m[1] ?? '';
+comprobar('genera una contraseña nueva y la enseña una vez',
+    (bool) preg_match('/^[A-Z2-9]{10}$/', $claveNueva), $claveNueva);
+comprobar('sin letras ni números que se confundan al dictarlos',
+    !preg_match('/[IO01]/', $claveNueva), $claveNueva);
+
+$hash = (string) $pdo->query("SELECT clave_hash FROM {$BD['prefijo']}persona WHERE id = $idMaria")->fetchColumn();
+comprobar('en la base queda el hash, nunca la contraseña',
+    $hash !== '' && !str_contains($hash, $claveNueva));
+comprobar('y es Argon2id o bcrypt', str_starts_with($hash, '$argon2id$') || str_starts_with($hash, '$2y$'), substr($hash, 0, 12));
+
+// Con la contraseña nueva se entra de verdad. Primero hay que encender el
+// método: por omisión están correo y QR, no la contraseña.
+$admin->get('/admin/autenticacion');
+$admin->post('/admin/autenticacion', [
+    'seccion' => 'metodos',
+    'metodos' => ['correo', 'qr', 'clave'],
+    'metodo_preferido' => 'correo',
+]);
+$pdo->exec("UPDATE {$BD['prefijo']}intento SET creado_en = DATE_SUB(NOW(), INTERVAL 2 DAY)");
+$conClave = new Cliente($BASE);
+$conClave->get('/entrar?metodo=clave');
+$html = $conClave->post('/entrar', [
+    'metodo' => 'clave',
+    'correo' => 'mzambrano@narino.gov.co',
+    'clave'  => $claveNueva,
+]);
+comprobar('la contraseña nueva sirve para entrar',
+    str_contains($html, 'María Fernanda Zambrano'), substr(strip_tags($html), 0, 110));
+
+titulo('Organizadores: rol y estado');
+
+$idConsulta = (int) $pdo->query("SELECT id FROM {$BD['prefijo']}usuario
+                                  WHERE correo <> 'aerazo@narino.gov.co' LIMIT 1")->fetchColumn();
+if ($idConsulta > 0) {
+    $html = $admin->get('/admin/organizadores');
+    comprobar('la tabla permite cambiar el rol', str_contains($html, '/admin/organizadores/rol'));
+
+    $admin->post('/admin/organizadores/rol', ['usuario' => (string) $idConsulta, 'rol' => 'consulta']);
+    $rol = (string) $pdo->query("SELECT rol FROM {$BD['prefijo']}usuario WHERE id = $idConsulta")->fetchColumn();
+    comprobar('el rol cambia de verdad', $rol === 'consulta', $rol);
+
+    $admin->post('/admin/organizadores/rol', ['usuario' => (string) $idConsulta, 'rol' => 'operador']);
+    comprobar('y se puede devolver',
+        (string) $pdo->query("SELECT rol FROM {$BD['prefijo']}usuario WHERE id = $idConsulta")->fetchColumn() === 'operador');
+}
+
+$idAdmin = (int) $pdo->query("SELECT id FROM {$BD['prefijo']}usuario
+                               WHERE correo = 'aerazo@narino.gov.co'")->fetchColumn();
+$admin->post('/admin/organizadores/rol', ['usuario' => (string) $idAdmin, 'rol' => 'consulta']);
+comprobar('nadie puede cambiar su propio rol',
+    (string) $pdo->query("SELECT rol FROM {$BD['prefijo']}usuario WHERE id = $idAdmin")->fetchColumn() === 'administrador');
+
+titulo('Jornadas: agregar y eliminar');
+
+$antes = (int) $pdo->query("SELECT COUNT(*) FROM {$BD['prefijo']}evento_dia")->fetchColumn();
+$html = $admin->get('/admin/qr-dias');
+comprobar('la pantalla ofrece agregar un día', str_contains($html, 'Agregar un día'));
+
+$admin->post('/admin/qr-dias/agregar', ['fecha' => date('Y-m-d', strtotime('+45 day'))]);
+$despues = (int) $pdo->query("SELECT COUNT(*) FROM {$BD['prefijo']}evento_dia")->fetchColumn();
+comprobar('se agrega la jornada', $despues === $antes + 1, "$antes → $despues");
+
+$conteoEvento = (int) $pdo->query("SELECT jornadas FROM {$BD['prefijo']}evento WHERE activo = 1")->fetchColumn();
+comprobar('el contador del evento queda cuadrado', $conteoEvento === $despues, "$conteoEvento vs $despues");
+
+$nueva = $pdo->query("SELECT * FROM {$BD['prefijo']}evento_dia ORDER BY numero DESC LIMIT 1")->fetch(PDO::FETCH_ASSOC);
+comprobar('la jornada nueva trae su propio código', strlen((string) $nueva['token']) === 32);
+
+$admin->post('/admin/qr-dias/agregar', ['fecha' => date('Y-m-d', strtotime('+45 day'))]);
+comprobar('no deja repetir la fecha',
+    (int) $pdo->query("SELECT COUNT(*) FROM {$BD['prefijo']}evento_dia")->fetchColumn() === $despues);
+
+$admin->post('/admin/qr-dias/eliminar', ['numero' => (string) $nueva['numero']]);
+comprobar('se elimina la jornada',
+    (int) $pdo->query("SELECT COUNT(*) FROM {$BD['prefijo']}evento_dia")->fetchColumn() === $antes);
+
+// La jornada 1 tiene ingresos de las pruebas anteriores: no se puede borrar.
+$conIngresos = (int) $pdo->query("SELECT COUNT(*) FROM {$BD['prefijo']}asistencia")->fetchColumn();
+if ($conIngresos > 0) {
+    $numeroConIngreso = (int) $pdo->query(
+        "SELECT d.numero FROM {$BD['prefijo']}evento_dia d
+           JOIN {$BD['prefijo']}asistencia a ON a.evento_dia_id = d.id LIMIT 1"
+    )->fetchColumn();
+    $html = $admin->post('/admin/qr-dias/eliminar', ['numero' => (string) $numeroConIngreso]);
+    comprobar('no se borra una jornada con ingresos registrados',
+        (int) $pdo->query("SELECT COUNT(*) FROM {$BD['prefijo']}evento_dia")->fetchColumn() === $antes);
+}
+
+titulo('Autenticación por pestañas');
+
+$html = $admin->get('/admin/autenticacion');
+comprobar('la pantalla se organiza en pestañas', str_contains($html, 'data-pestanas'));
+foreach (['panel-metodos', 'panel-correo', 'panel-qr', 'panel-clave', 'panel-whatsapp', 'panel-sms'] as $panelId) {
+    comprobar('existe el panel ' . $panelId, str_contains($html, 'id="' . $panelId . '"'));
+}
+
+// Guardar una pestaña no puede borrar lo de las otras: es el fallo clásico al
+// partir un formulario largo en varios.
+$admin->post('/admin/autenticacion', [
+    'seccion' => 'whatsapp', 'wa_proveedor' => 'meta',
+    'wa_cuenta' => '1234567890', 'wa_remitente' => '',
+]);
+$admin->post('/admin/autenticacion', [
+    'seccion' => 'sms', 'sms_proveedor' => 'twilio',
+    'sms_cuenta' => 'ACprueba', 'sms_remitente' => '+573001112233',
+]);
+$config = leerConfig($RAIZ);
+comprobar('guardar SMS no borró lo de WhatsApp',
+    ($config['wa_cuenta'] ?? '') === '1234567890', (string) ($config['wa_cuenta'] ?? 'vacío'));
+comprobar('y los métodos activos siguen ahí',
+    !empty($config['auth_metodos']), json_encode($config['auth_metodos'] ?? null));
+
+$admin->post('/admin/autenticacion', ['seccion' => 'metodos', 'metodos' => []]);
+comprobar('no se pueden apagar todos los métodos',
+    !empty(leerConfig($RAIZ)['auth_metodos']));
+
 /* =========================================================================
    10 · Cierre de sesión
    ========================================================================= */
@@ -1360,6 +1623,13 @@ comprobar('el guion deja la cuenta como la encontró',
     (int) $pdo->query("SELECT totp_confirmado FROM {$BD['prefijo']}usuario
                         WHERE correo = 'aerazo@narino.gov.co'")->fetchColumn() === 0);
 
+/* =========================================================================
+   Entrar desde el propio carnet, y lo que el panel puede hacer con eso
+   -------------------------------------------------------------------------
+   Este bloque cubre lo que se rompía en producción: la persona se preregistra
+   en el navegador, abre el enlace del correo desde otra aplicación —que no
+   comparte cookies— y acaba en «identifícate» con el carnet ya emitido.
+   ========================================================================= */
 /* =========================================================================
    Resultado
    ========================================================================= */

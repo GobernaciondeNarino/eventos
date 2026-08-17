@@ -160,6 +160,51 @@ externa: con Strict la cookie no viajaría y pediría acceso otra vez en la puer
 El identificador se rota al superar el segundo factor, para que una cookie fijada antes de
 completar la identificación no siga sirviendo.
 
+### 2.8.1 La marca del dispositivo
+
+Hay una segunda cookie, solo para asistentes: `evtic_disp`, seis meses de vida, cuyo único
+poder es volver a abrir la sesión de su dueño (`App\Nucleo\Dispositivo`).
+
+Existe porque el escenario real la pedía: la persona se preregistra en el navegador y a los
+días abre el enlace desde el correo o desde WhatsApp, que usan su propio almacén de cookies.
+Sin esto acababa en «identifícate» con el carnet ya emitido, que es donde la gente abandona.
+
+Los controles:
+
+- **Selector y validador.** El selector busca la fila —es un índice, no un secreto—; del
+  validador se guarda solo el SHA-256 y se compara con `hash_equals`. Igual que las sesiones:
+  quien lea la tabla no obtiene cookies utilizables. Verificado en las pruebas.
+- **Un selector real con un validador equivocado borra la fila entera.** No es un error de
+  tecleo: son 256 bits al azar. Se anota en la bitácora y el dispositivo queda invalidado.
+- **No abre el panel de nadie del equipo.** Solo asistentes; la sesión del organizador es
+  corta a propósito y muere al cerrar el navegador.
+- **Salir es salir.** `Sesion::cerrar('asistente')` borra también la marca; si no, la página
+  siguiente volvería a abrir la sesión sola y el botón no serviría para nada.
+- **Se puede retirar a distancia**, desde el carnet de su dueño y desde *Registros*, junto
+  con la anulación del QR de acceso.
+
+**No se rota el validador en cada uso, a propósito.** La rotación detecta el robo, pero en un
+teléfono con varias pestañas —o con la precarga del navegador— dos peticiones simultáneas
+usan el mismo valor y la segunda queda inválida: la persona se encuentra fuera sin haber
+hecho nada. A cambio se guarda el agente y la fecha de último uso, y el dueño puede cerrar
+todos sus dispositivos.
+
+### 2.8.2 El QR de acceso, distinto del QR de contacto
+
+Son dos códigos y la diferencia es deliberada:
+
+| | Qué es | Quién lo puede ver |
+|---|---|---|
+| `/c/{token}` | Tarjeta de presentación. Escanearlo no identifica a nadie: intercambia contacto, o acredita si quien mira es del equipo | Cualquiera. Va impreso en la escarapela |
+| `/entrar/qr/{token}` | Credencial. Abre la sesión de su dueño en el teléfono que lo escanee | Solo su dueño y el equipo, y así se rotula en pantalla |
+
+Que existiera solo el primero es la razón de que escanear el propio carnet terminara en
+«Escaneaste el carnet de un asistente» en vez de entrar. Fundirlos en uno habría sido peor:
+convertiría cada foto de una escarapela en una llave.
+
+El token de acceso son 128 bits al azar, con límite por dirección contra la enumeración, y se
+puede anular desde *Registros* —lo que además olvida todos los dispositivos de esa persona.
+
 ### 2.9 Autorización comprobada en el servidor, en cada petición
 
 Los guardias están declarados junto a cada ruta en `app/rutas.php`, en un solo archivo, para
@@ -263,7 +308,27 @@ igual que para uno registrado.
 
 ### Subida de archivos
 
-El logo del evento es el único archivo que se sube. Los controles, en `Admin::guardarLogo()`:
+Se suben dos cosas: el logo del evento, que sube un administrador, y la fotografía del
+carnet, que sube el propio asistente desde el formulario público. La segunda es la que más
+cuidado pide, porque el formulario está abierto.
+
+**La fotografía** (`App\Nucleo\Imagen::guardarFoto`):
+
+1. Tipo determinado por el **contenido real** (`finfo`). Solo JPG, PNG y WEBP.
+2. **No se admite SVG.** Para un logo tiene sentido; para la foto de una cara no hay ningún
+   motivo, y un SVG es un documento XML capaz de contener guiones.
+3. Tamaño máximo 6 MB, y el error de PHP por exceso de tamaño se traduce a una frase que la
+   persona entiende, con el límite real del servidor.
+4. La imagen se **vuelve a generar entera** con GD: se descarta cualquier carga útil
+   escondida en los metadatos EXIF o detrás de la cabecera. La salida es siempre JPEG,
+   recortada cuadrada a 480 px.
+5. El nombre lo pone el servidor y lleva 8 bytes al azar: sin eso, saber el id de una persona
+   bastaría para adivinar la ruta de su foto.
+6. **Nunca se sirve desde el disco.** Pasa por `Medios::foto`, que además comprueba quién
+   mira: su dueño, o el equipo organizador. El id es correlativo, así que sin esa
+   comprobación bastaría con contar desde uno para descargar la cara de todos los asistentes.
+
+**El logo del evento.** Los controles, en `Admin::guardarLogo()`:
 
 1. Tipo determinado por el **contenido real** (`finfo`), no por la extensión ni por lo que
    declare el navegador.
@@ -287,6 +352,24 @@ equipo de un funcionario.
 
 La exportación con caracterización exige rol administrador —comprobado en el servidor, no
 solo escondiendo el botón— y queda en la bitácora.
+
+### Las contraseñas de los asistentes no se pueden mostrar
+
+Se pide con frecuencia: «esta persona no recuerda su contraseña, muéstramela». No se puede, y
+no es una limitación de la pantalla. En la base hay un hash Argon2id, que es una función de
+un solo sentido; si la plataforma pudiera leer la contraseña, cualquiera que copiara la tabla
+tendría en claro las de todos los asistentes.
+
+Lo que sí ofrece la ficha de *Registros*, para un administrador:
+
+- **Generar una contraseña nueva**, de diez caracteres sin letras ni números que se confundan
+  al dictarlos por teléfono (sin `I`, `O`, `0` ni `1`). Se muestra **una sola vez** y no
+  viaja en la redirección ni en el aviso: se pinta en la respuesta de esa misma petición.
+  Al hacerlo se cierran las sesiones de esa persona y se olvidan sus dispositivos, porque
+  quien pide restablecer una contraseña suele haber perdido el control de la cuenta.
+- **Enseñarle su QR de acceso**, que entra sin escribir nada, y anularlo si hizo falta.
+
+Ambas acciones quedan en la bitácora, y abrir una ficha también.
 
 ### Auditoría
 

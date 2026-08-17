@@ -348,10 +348,28 @@ restauró no es una copia.
 
 1. Copia de seguridad completa (base de datos y archivos).
 2. Sube los archivos nuevos **sin tocar `config/` ni `almacen/`**.
-3. Si la versión trae cambios de esquema, crea `config/permitir-reinstalar`, entra a
-   `/instalar` y elige el modo **Actualizar**: conserva los datos y solo aplica lo que
-   falta.
-4. Borra `config/permitir-reinstalar`.
+3. **Pon la base al día.** Los archivos suben, pero la base no se entera sola: si la versión
+   trae tablas o columnas nuevas, la plataforma queda a medias —una pantalla nueva contra una
+   tabla que no existe— y el fallo aparece en la puerta del evento.
+
+   Hay tres caminos, y el primero es el normal:
+
+   - **Desde el panel.** Entra en `/admin`. Si la base está atrasada, arriba del todo aparece
+     un aviso con el motivo y un botón **«Actualizar la base de datos»**. Solo agrega tablas
+     y columnas; no borra ni cambia nada de lo que ya hay, así que se puede hacer con el
+     evento en curso. Queda en la bitácora.
+   - **Desde la consola**, si prefieres no tocar el navegador:
+
+     ```bash
+     php herramientas/instalar.php --reparar --esquema
+     ```
+
+   - **Desde el asistente**, si algo salió mal con los dos anteriores: crea
+     `config/permitir-reinstalar`, entra a `/instalar`, elige el modo **Actualizar** —que
+     conserva los datos— y borra el archivo al terminar.
+
+4. Comprueba en `/admin` que el aviso desapareció, y en `/instalar/diagnostico` que las
+   tablas están completas.
 
 ---
 

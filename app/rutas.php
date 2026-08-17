@@ -107,15 +107,28 @@ $enrutador->ambos('/admin/clave', [Acceso::class, 'cambiarClave']);
 
 $enrutador->get('/admin', [Admin::class, 'panel'], 'admin:consulta');
 
+// Aplica al esquema lo que falte para esta versión del código. Solo agrega
+// tablas y columnas; nunca borra. Ver Esquema::revisionPendiente().
+$enrutador->post('/admin/actualizar-esquema', [Admin::class, 'actualizarEsquema'], 'admin:administrador');
+
 $enrutador->get('/admin/escaner', [Admin::class, 'escaner'], 'admin:operador');
 $enrutador->post('/admin/escaner/buscar', [Admin::class, 'buscarPersona'], 'admin:operador');
 
 $enrutador->get('/admin/registros', [Admin::class, 'registros'], 'admin:consulta');
 $enrutador->get('/admin/registros/exportar', [Admin::class, 'exportar'], 'admin:consulta');
 
+// Ficha de una persona. Ver los datos de alguien queda en la bitácora, igual
+// que la pantalla de acreditación.
+$enrutador->get('/admin/registros/{persona:num}', [Admin::class, 'ficha'], 'admin:consulta');
+$enrutador->post('/admin/registros/clave', [Admin::class, 'restablecerClave'], 'admin:administrador');
+$enrutador->post('/admin/registros/qr', [Admin::class, 'regenerarQrAcceso'], 'admin:administrador');
+
 $enrutador->get('/admin/qr-dias', [Admin::class, 'codigosDia'], 'admin:operador');
 $enrutador->get('/admin/qr-dias/{numero:num}/imprimir', [Admin::class, 'imprimirCodigo'], 'admin:operador');
 $enrutador->post('/admin/qr-dias/rotar', [Admin::class, 'rotarCodigo'], 'admin:administrador');
+$enrutador->post('/admin/qr-dias/agregar', [Admin::class, 'agregarJornada'], 'admin:administrador');
+$enrutador->post('/admin/qr-dias/eliminar', [Admin::class, 'eliminarJornada'], 'admin:administrador');
+$enrutador->post('/admin/qr-dias/ajustar', [Admin::class, 'ajustarJornada'], 'admin:administrador');
 
 $enrutador->get('/admin/expositores', [Admin::class, 'expositores'], 'admin:administrador');
 $enrutador->post('/admin/expositores/decidir', [Admin::class, 'decidirPropuesta'], 'admin:administrador');
@@ -123,6 +136,7 @@ $enrutador->post('/admin/expositores/decidir', [Admin::class, 'decidirPropuesta'
 $enrutador->get('/admin/organizadores', [Admin::class, 'organizadores'], 'admin:administrador');
 $enrutador->post('/admin/organizadores/crear', [Admin::class, 'crearUsuario'], 'admin:administrador');
 $enrutador->post('/admin/organizadores/estado', [Admin::class, 'cambiarEstadoUsuario'], 'admin:administrador');
+$enrutador->post('/admin/organizadores/rol', [Admin::class, 'cambiarRolUsuario'], 'admin:administrador');
 
 $enrutador->get('/admin/eventos', [Admin::class, 'eventos'], 'admin:administrador');
 $enrutador->post('/admin/eventos/crear', [Admin::class, 'crearEvento'], 'admin:administrador');

@@ -126,8 +126,30 @@ $codigos = [
     </div>
   </section>
 
+
+  <!-- ============ Pestañas ============
+       Una por método, con su configuración y sus instrucciones juntas. Sin
+       JavaScript la barra de pestañas no aparece y los paneles se ven uno
+       debajo de otro, que es exactamente lo que había antes. -->
+  <div class="tabs" role="tablist" aria-label="Configuración de los métodos" data-pestanas>
+    <button class="tabs__btn" type="button" role="tab" data-pestana="panel-metodos" id="tab-metodos"
+            aria-controls="panel-metodos">Métodos</button>
+    <button class="tabs__btn" type="button" role="tab" data-pestana="panel-correo" id="tab-correo"
+            aria-controls="panel-correo">Correo<?php if ($fallos): ?> <span class="tag tag--danger"><?= count($fallos) ?></span><?php endif; ?></button>
+    <button class="tabs__btn" type="button" role="tab" data-pestana="panel-qr" id="tab-qr"
+            aria-controls="panel-qr">QR de acceso</button>
+    <button class="tabs__btn" type="button" role="tab" data-pestana="panel-clave" id="tab-clave"
+            aria-controls="panel-clave">Contraseña</button>
+    <button class="tabs__btn" type="button" role="tab" data-pestana="panel-whatsapp" id="tab-whatsapp"
+            aria-controls="panel-whatsapp">WhatsApp</button>
+    <button class="tabs__btn" type="button" role="tab" data-pestana="panel-sms" id="tab-sms"
+            aria-controls="panel-sms">SMS</button>
+  </div>
+
+  <div class="stack stack--4" id="panel-metodos" role="tabpanel" aria-labelledby="tab-metodos">
   <form class="card" method="post" action="<?= e(u('/admin/autenticacion')) ?>">
     <?= testigo() ?>
+    <input type="hidden" name="seccion" value="metodos">
     <div class="card__head"><span>Formas de entrar</span></div>
     <div class="card__body stack stack--4">
 
@@ -166,183 +188,16 @@ $codigos = [
           </select>
           <span class="help">Los demás quedan a un clic, en la misma pantalla.</span>
         </div>
-        <div class="field">
-          <label class="label" for="clave-minima">Largo mínimo de la contraseña</label>
-          <input type="number" name="auth_clave_minima" id="clave-minima" class="input" min="6" max="64"
-                 value="<?= e((string) $auth['claveMinima']) ?>">
-          <span class="help">Solo aplica al método «Contraseña simple».</span>
-        </div>
       </div>
 
-      <!-- ---------- WhatsApp ---------- -->
-      <fieldset style="border:1px solid var(--a-14);padding:16px;display:grid;gap:14px">
-        <legend class="kicker" style="padding:0 6px">WhatsApp</legend>
-        <div class="split" style="gap:14px">
-          <div class="field">
-            <label class="label" for="wa-proveedor">Proveedor</label>
-            <select name="wa_proveedor" id="wa-proveedor" class="select">
-              <?php foreach ($mensajeria['whatsapp'] as $clave => $p): ?>
-                <option value="<?= e($clave) ?>" <?= $auth['waProveedor'] === $clave ? 'selected' : '' ?>>
-                  <?= e($p['nombre']) ?>
-                </option>
-              <?php endforeach; ?>
-            </select>
-          </div>
-          <div class="field">
-            <label class="label" for="wa-cuenta">Cuenta / identificador del número</label>
-            <input type="text" name="wa_cuenta" id="wa-cuenta" class="input" autocapitalize="off"
-                   value="<?= e($auth['waCuenta']) ?>" placeholder="1234567890123456 · o AC…">
-          </div>
-        </div>
-        <div class="split" style="gap:14px">
-          <div class="field">
-            <label class="label" for="wa-remitente">Número emisor (solo Twilio)</label>
-            <input type="text" name="wa_remitente" id="wa-remitente" class="input"
-                   value="<?= e($auth['waRemitente']) ?>" placeholder="+573001112233">
-          </div>
-          <div class="field">
-            <label class="label" for="wa-token">
-              Token
-              <?php if ($auth['hayWaToken']): ?>
-                <span class="mono" style="font-size:10px;color:var(--c-muted)">· hay uno guardado</span>
-              <?php endif; ?>
-            </label>
-            <input type="password" name="wa_token" id="wa-token" class="input" autocomplete="new-password"
-                   placeholder="<?= $auth['hayWaToken'] ? '••••••••  (déjalo vacío para no cambiarlo)' : 'EAAG… / Auth Token' ?>">
-          </div>
-        </div>
-        <?php if ($auth['hayWaToken']): ?>
-          <label class="row" style="gap:8px;cursor:pointer">
-            <input type="checkbox" name="borrar_wa_token" value="1" style="width:16px;height:16px;accent-color:var(--c-accent)">
-            <span class="help">Borrar el token guardado</span>
-          </label>
-        <?php endif; ?>
-
-        <div class="stack stack--1" style="padding-top:8px;border-top:1px solid var(--hair,var(--a-14))">
-          <strong style="font-size:12.5px">Cómo se configura</strong>
-          <ol style="margin:0;padding-left:18px;display:grid;gap:5px">
-            <li class="help" style="margin:0"><strong>Meta (WhatsApp Cloud API):</strong> crea una app en
-              <span class="mono">developers.facebook.com</span> → añade el producto WhatsApp → en
-              <em>API Setup</em> copia el <strong>Phone number ID</strong> a «Cuenta» y genera un
-              <strong>token permanente de sistema</strong> para «Token».</li>
-            <li class="help" style="margin:0"><strong>Twilio:</strong> «Cuenta» es el
-              <span class="mono">Account SID</span> (empieza por AC), «Token» el <em>Auth Token</em>, y
-              «Número emisor» el número de WhatsApp aprobado, con indicativo.</li>
-            <li class="help" style="margin:0"><strong>Plantilla obligatoria.</strong> WhatsApp solo deja
-              texto libre dentro de las 24 h siguientes a que la persona escriba. Para iniciar la
-              conversación hace falta una <strong>plantilla aprobada</strong> de categoría
-              <em>Authentication</em>; se aprueba en horas y es gratuita.</li>
-            <li class="help" style="margin:0">El teléfono de cada persona debe estar en su preregistro.
-              Se acepta en cualquier formato: la plataforma lo normaliza a <span class="mono">+57…</span>.</li>
-            <li class="help" style="margin:0">Sale por HTTPS al 443, así que <strong>funciona aunque el
-              servidor tenga cerrada la salida SMTP</strong>.</li>
-          </ol>
-        </div>
-      </fieldset>
-
-      <!-- ---------- SMS ---------- -->
-      <fieldset style="border:1px solid var(--a-14);padding:16px;display:grid;gap:14px">
-        <legend class="kicker" style="padding:0 6px">Mensaje de texto (SMS)</legend>
-        <div class="split" style="gap:14px">
-          <div class="field">
-            <label class="label" for="sms-proveedor">Proveedor</label>
-            <select name="sms_proveedor" id="sms-proveedor" class="select">
-              <?php foreach ($mensajeria['sms'] as $clave => $p): ?>
-                <option value="<?= e($clave) ?>" <?= $auth['smsProveedor'] === $clave ? 'selected' : '' ?>>
-                  <?= e($p['nombre']) ?>
-                </option>
-              <?php endforeach; ?>
-            </select>
-          </div>
-          <div class="field">
-            <label class="label" for="sms-cuenta">Account SID · o URL de la pasarela</label>
-            <input type="text" name="sms_cuenta" id="sms-cuenta" class="input" autocapitalize="off"
-                   value="<?= e($auth['smsCuenta']) ?>"
-                   placeholder="AC… · o https://pasarela/enviar?to={telefono}&amp;msg={texto}">
-          </div>
-        </div>
-        <div class="split" style="gap:14px">
-          <div class="field">
-            <label class="label" for="sms-remitente">Número o nombre emisor</label>
-            <input type="text" name="sms_remitente" id="sms-remitente" class="input"
-                   value="<?= e($auth['smsRemitente']) ?>" placeholder="+573001112233">
-          </div>
-          <div class="field">
-            <label class="label" for="sms-token">
-              Token
-              <?php if ($auth['haySmsToken']): ?>
-                <span class="mono" style="font-size:10px;color:var(--c-muted)">· hay uno guardado</span>
-              <?php endif; ?>
-            </label>
-            <input type="password" name="sms_token" id="sms-token" class="input" autocomplete="new-password"
-                   placeholder="<?= $auth['haySmsToken'] ? '••••••••  (déjalo vacío para no cambiarlo)' : 'Auth Token / clave' ?>">
-          </div>
-        </div>
-        <?php if ($auth['haySmsToken']): ?>
-          <label class="row" style="gap:8px;cursor:pointer">
-            <input type="checkbox" name="borrar_sms_token" value="1" style="width:16px;height:16px;accent-color:var(--c-accent)">
-            <span class="help">Borrar el token guardado</span>
-          </label>
-        <?php endif; ?>
-
-        <div class="stack stack--1" style="padding-top:8px;border-top:1px solid var(--hair,var(--a-14))">
-          <strong style="font-size:12.5px">Cómo se configura</strong>
-          <ol style="margin:0;padding-left:18px;display:grid;gap:5px">
-            <li class="help" style="margin:0"><strong>Twilio:</strong> «Cuenta» es el
-              <span class="mono">Account SID</span>, «Token» el <em>Auth Token</em>, y «Emisor» un número
-              comprado en <em>Phone Numbers</em> con SMS habilitado para Colombia.</li>
-            <li class="help" style="margin:0"><strong>Pasarela propia:</strong> pon en «Cuenta» la URL
-              completa que dé el proveedor local, usando <span class="mono">{telefono}</span>,
-              <span class="mono">{texto}</span> y <span class="mono">{remitente}</span> donde
-              correspondan. El token se manda como <span class="mono">Authorization: Bearer</span>.</li>
-            <li class="help" style="margin:0">Para Colombia conviene un proveedor con ruta local:
-              los internacionales suelen tener entrega irregular a operadoras colombianas.</li>
-            <li class="help" style="margin:0"><strong>Cada SMS cuesta.</strong> El límite de la
-              plataforma —cuatro por hora y destinatario— acota el gasto, pero revisa el consumo
-              durante el evento.</li>
-            <li class="help" style="margin:0">También sale por HTTPS al 443: no le afecta el bloqueo
-              de SMTP.</li>
-          </ol>
-        </div>
-      </fieldset>
-
-      <!-- ---------- QR y contraseña: instrucciones ---------- -->
-      <fieldset style="border:1px solid var(--a-14);padding:16px;display:grid;gap:12px">
-        <legend class="kicker" style="padding:0 6px">QR de acceso y contraseña</legend>
-        <div class="stack stack--1">
-          <strong style="font-size:12.5px">QR de acceso — cómo se usa</strong>
-          <ol style="margin:0;padding-left:18px;display:grid;gap:5px">
-            <li class="help" style="margin:0">No hay nada que configurar: se genera solo para cada
-              persona la primera vez que hace falta.</li>
-            <li class="help" style="margin:0">Aparece en el carnet, junto al QR de contacto. Son
-              <strong>distintos a propósito</strong>: el de contacto se enseña a cualquiera para
-              intercambiar datos; este abre la sesión de su dueño.</li>
-            <li class="help" style="margin:0">Se escanea con la cámara del teléfono, sin aplicación.
-              Es el método que sigue funcionando <strong>sin correo, sin datos y sin terceros</strong>.</li>
-            <li class="help" style="margin:0">Si alguien pierde la escarapela, se regenera su código
-              desde <em>Registros</em> y el anterior deja de servir en el acto.</li>
-          </ol>
-        </div>
-        <div class="stack stack--1" style="padding-top:8px;border-top:1px solid var(--hair,var(--a-14))">
-          <strong style="font-size:12.5px">Contraseña simple — cómo se usa</strong>
-          <ol style="margin:0;padding-left:18px;display:grid;gap:5px">
-            <li class="help" style="margin:0">La persona la elige en el preregistro. Se guarda con
-              Argon2id, nunca en claro.</li>
-            <li class="help" style="margin:0">Quien se preregistró <strong>antes</strong> de encender
-              este método no tiene contraseña: entrará por otro y podrá ponerla desde sus datos.</li>
-            <li class="help" style="margin:0">Con el límite de intentos de la plataforma, probar
-              contraseñas al azar no es viable; aun así, para un evento de pocos días el QR es más
-              cómodo y más seguro.</li>
-          </ol>
-        </div>
-      </fieldset>
-
       <div class="row" style="gap:10px">
-        <button class="btn btn--primary" type="submit">Guardar métodos de acceso</button>
+        <button class="btn btn--primary" type="submit">Guardar los métodos activos</button>
       </div>
     </div>
   </form>
+  </div>
 
+  <div class="stack stack--4" id="panel-correo" role="tabpanel" aria-labelledby="tab-correo">
   <div class="stack stack--2" style="padding-top:10px">
     <span class="kicker">Envío de mensajes</span>
     <p class="help" style="margin:0;max-width:66ch">
@@ -865,5 +720,221 @@ $codigos = [
       </p>
     </div>
   </section>
+  </div>
+
+  <div class="stack stack--4" id="panel-qr" role="tabpanel" aria-labelledby="tab-qr">
+  <section class="card">
+    <div class="card__head">
+      <span>QR de acceso</span>
+      <span class="mono" style="font-size:11px;color:var(--c-muted)">nada que configurar</span>
+    </div>
+    <div class="card__body stack stack--3">
+        <div class="stack stack--1">
+          <strong style="font-size:12.5px">QR de acceso — cómo se usa</strong>
+          <ol style="margin:0;padding-left:18px;display:grid;gap:5px">
+            <li class="help" style="margin:0">No hay nada que configurar: se genera solo para cada
+              persona la primera vez que hace falta.</li>
+            <li class="help" style="margin:0">Aparece en el carnet, junto al QR de contacto. Son
+              <strong>distintos a propósito</strong>: el de contacto se enseña a cualquiera para
+              intercambiar datos; este abre la sesión de su dueño.</li>
+            <li class="help" style="margin:0">Se escanea con la cámara del teléfono, sin aplicación.
+              Es el método que sigue funcionando <strong>sin correo, sin datos y sin terceros</strong>.</li>
+            <li class="help" style="margin:0">Si alguien pierde la escarapela, se regenera su código
+              desde <em>Registros</em> y el anterior deja de servir en el acto.</li>
+          </ol>
+        </div>
+    </div>
+  </section>
+  </div>
+
+  <div class="stack stack--4" id="panel-clave" role="tabpanel" aria-labelledby="tab-clave">
+  <form class="card" method="post" action="<?= e(u('/admin/autenticacion')) ?>">
+    <?= testigo() ?>
+    <input type="hidden" name="seccion" value="clave">
+    <div class="card__head"><span>Contraseña simple</span></div>
+    <div class="card__body stack stack--4">
+
+      <div class="field" style="max-width:280px">
+        <label class="label" for="clave-minima">Largo mínimo de la contraseña</label>
+        <input type="number" name="auth_clave_minima" id="clave-minima" class="input" min="6" max="64"
+               value="<?= e((string) $auth['claveMinima']) ?>">
+        <span class="help">Entre 6 y 64. Se aplica a las contraseñas nuevas, no a las ya puestas.</span>
+      </div>
+
+        <div class="stack stack--1" style="padding-top:8px;border-top:1px solid var(--hair,var(--a-14))">
+          <strong style="font-size:12.5px">Contraseña simple — cómo se usa</strong>
+          <ol style="margin:0;padding-left:18px;display:grid;gap:5px">
+            <li class="help" style="margin:0">La persona la elige en el preregistro. Se guarda con
+              Argon2id, nunca en claro.</li>
+            <li class="help" style="margin:0">Quien se preregistró <strong>antes</strong> de encender
+              este método no tiene contraseña: entrará por otro y podrá ponerla desde sus datos.</li>
+            <li class="help" style="margin:0">Con el límite de intentos de la plataforma, probar
+              contraseñas al azar no es viable; aun así, para un evento de pocos días el QR es más
+              cómodo y más seguro.</li>
+          </ol>
+        </div>
+
+      <div class="row" style="gap:10px">
+        <button class="btn btn--primary" type="submit">Guardar métodos de acceso</button>
+      </div>
+    </div>
+  </form>
+
+      <div class="row" style="gap:10px">
+        <button class="btn btn--primary" type="submit">Guardar</button>
+      </div>
+    </div>
+  </form>
+  </div>
+
+  <div class="stack stack--4" id="panel-whatsapp" role="tabpanel" aria-labelledby="tab-whatsapp">
+  <form class="card" method="post" action="<?= e(u('/admin/autenticacion')) ?>">
+    <?= testigo() ?>
+    <input type="hidden" name="seccion" value="whatsapp">
+    <div class="card__head"><span>WhatsApp</span></div>
+    <div class="card__body stack stack--4">
+        <div class="split" style="gap:14px">
+          <div class="field">
+            <label class="label" for="wa-proveedor">Proveedor</label>
+            <select name="wa_proveedor" id="wa-proveedor" class="select">
+              <?php foreach ($mensajeria['whatsapp'] as $clave => $p): ?>
+                <option value="<?= e($clave) ?>" <?= $auth['waProveedor'] === $clave ? 'selected' : '' ?>>
+                  <?= e($p['nombre']) ?>
+                </option>
+              <?php endforeach; ?>
+            </select>
+          </div>
+          <div class="field">
+            <label class="label" for="wa-cuenta">Cuenta / identificador del número</label>
+            <input type="text" name="wa_cuenta" id="wa-cuenta" class="input" autocapitalize="off"
+                   value="<?= e($auth['waCuenta']) ?>" placeholder="1234567890123456 · o AC…">
+          </div>
+        </div>
+        <div class="split" style="gap:14px">
+          <div class="field">
+            <label class="label" for="wa-remitente">Número emisor (solo Twilio)</label>
+            <input type="text" name="wa_remitente" id="wa-remitente" class="input"
+                   value="<?= e($auth['waRemitente']) ?>" placeholder="+573001112233">
+          </div>
+          <div class="field">
+            <label class="label" for="wa-token">
+              Token
+              <?php if ($auth['hayWaToken']): ?>
+                <span class="mono" style="font-size:10px;color:var(--c-muted)">· hay uno guardado</span>
+              <?php endif; ?>
+            </label>
+            <input type="password" name="wa_token" id="wa-token" class="input" autocomplete="new-password"
+                   placeholder="<?= $auth['hayWaToken'] ? '••••••••  (déjalo vacío para no cambiarlo)' : 'EAAG… / Auth Token' ?>">
+          </div>
+        </div>
+        <?php if ($auth['hayWaToken']): ?>
+          <label class="row" style="gap:8px;cursor:pointer">
+            <input type="checkbox" name="borrar_wa_token" value="1" style="width:16px;height:16px;accent-color:var(--c-accent)">
+            <span class="help">Borrar el token guardado</span>
+          </label>
+        <?php endif; ?>
+
+        <div class="stack stack--1" style="padding-top:8px;border-top:1px solid var(--hair,var(--a-14))">
+          <strong style="font-size:12.5px">Cómo se configura</strong>
+          <ol style="margin:0;padding-left:18px;display:grid;gap:5px">
+            <li class="help" style="margin:0"><strong>Meta (WhatsApp Cloud API):</strong> crea una app en
+              <span class="mono">developers.facebook.com</span> → añade el producto WhatsApp → en
+              <em>API Setup</em> copia el <strong>Phone number ID</strong> a «Cuenta» y genera un
+              <strong>token permanente de sistema</strong> para «Token».</li>
+            <li class="help" style="margin:0"><strong>Twilio:</strong> «Cuenta» es el
+              <span class="mono">Account SID</span> (empieza por AC), «Token» el <em>Auth Token</em>, y
+              «Número emisor» el número de WhatsApp aprobado, con indicativo.</li>
+            <li class="help" style="margin:0"><strong>Plantilla obligatoria.</strong> WhatsApp solo deja
+              texto libre dentro de las 24 h siguientes a que la persona escriba. Para iniciar la
+              conversación hace falta una <strong>plantilla aprobada</strong> de categoría
+              <em>Authentication</em>; se aprueba en horas y es gratuita.</li>
+            <li class="help" style="margin:0">El teléfono de cada persona debe estar en su preregistro.
+              Se acepta en cualquier formato: la plataforma lo normaliza a <span class="mono">+57…</span>.</li>
+            <li class="help" style="margin:0">Sale por HTTPS al 443, así que <strong>funciona aunque el
+              servidor tenga cerrada la salida SMTP</strong>.</li>
+          </ol>
+        </div>
+
+      <div class="row" style="gap:10px">
+        <button class="btn btn--primary" type="submit">Guardar WhatsApp</button>
+      </div>
+    </div>
+  </form>
+  </div>
+
+  <div class="stack stack--4" id="panel-sms" role="tabpanel" aria-labelledby="tab-sms">
+  <form class="card" method="post" action="<?= e(u('/admin/autenticacion')) ?>">
+    <?= testigo() ?>
+    <input type="hidden" name="seccion" value="sms">
+    <div class="card__head"><span>SMS</span></div>
+    <div class="card__body stack stack--4">
+        <div class="split" style="gap:14px">
+          <div class="field">
+            <label class="label" for="sms-proveedor">Proveedor</label>
+            <select name="sms_proveedor" id="sms-proveedor" class="select">
+              <?php foreach ($mensajeria['sms'] as $clave => $p): ?>
+                <option value="<?= e($clave) ?>" <?= $auth['smsProveedor'] === $clave ? 'selected' : '' ?>>
+                  <?= e($p['nombre']) ?>
+                </option>
+              <?php endforeach; ?>
+            </select>
+          </div>
+          <div class="field">
+            <label class="label" for="sms-cuenta">Account SID · o URL de la pasarela</label>
+            <input type="text" name="sms_cuenta" id="sms-cuenta" class="input" autocapitalize="off"
+                   value="<?= e($auth['smsCuenta']) ?>"
+                   placeholder="AC… · o https://pasarela/enviar?to={telefono}&amp;msg={texto}">
+          </div>
+        </div>
+        <div class="split" style="gap:14px">
+          <div class="field">
+            <label class="label" for="sms-remitente">Número o nombre emisor</label>
+            <input type="text" name="sms_remitente" id="sms-remitente" class="input"
+                   value="<?= e($auth['smsRemitente']) ?>" placeholder="+573001112233">
+          </div>
+          <div class="field">
+            <label class="label" for="sms-token">
+              Token
+              <?php if ($auth['haySmsToken']): ?>
+                <span class="mono" style="font-size:10px;color:var(--c-muted)">· hay uno guardado</span>
+              <?php endif; ?>
+            </label>
+            <input type="password" name="sms_token" id="sms-token" class="input" autocomplete="new-password"
+                   placeholder="<?= $auth['haySmsToken'] ? '••••••••  (déjalo vacío para no cambiarlo)' : 'Auth Token / clave' ?>">
+          </div>
+        </div>
+        <?php if ($auth['haySmsToken']): ?>
+          <label class="row" style="gap:8px;cursor:pointer">
+            <input type="checkbox" name="borrar_sms_token" value="1" style="width:16px;height:16px;accent-color:var(--c-accent)">
+            <span class="help">Borrar el token guardado</span>
+          </label>
+        <?php endif; ?>
+
+        <div class="stack stack--1" style="padding-top:8px;border-top:1px solid var(--hair,var(--a-14))">
+          <strong style="font-size:12.5px">Cómo se configura</strong>
+          <ol style="margin:0;padding-left:18px;display:grid;gap:5px">
+            <li class="help" style="margin:0"><strong>Twilio:</strong> «Cuenta» es el
+              <span class="mono">Account SID</span>, «Token» el <em>Auth Token</em>, y «Emisor» un número
+              comprado en <em>Phone Numbers</em> con SMS habilitado para Colombia.</li>
+            <li class="help" style="margin:0"><strong>Pasarela propia:</strong> pon en «Cuenta» la URL
+              completa que dé el proveedor local, usando <span class="mono">{telefono}</span>,
+              <span class="mono">{texto}</span> y <span class="mono">{remitente}</span> donde
+              correspondan. El token se manda como <span class="mono">Authorization: Bearer</span>.</li>
+            <li class="help" style="margin:0">Para Colombia conviene un proveedor con ruta local:
+              los internacionales suelen tener entrega irregular a operadoras colombianas.</li>
+            <li class="help" style="margin:0"><strong>Cada SMS cuesta.</strong> El límite de la
+              plataforma —cuatro por hora y destinatario— acota el gasto, pero revisa el consumo
+              durante el evento.</li>
+            <li class="help" style="margin:0">También sale por HTTPS al 443: no le afecta el bloqueo
+              de SMTP.</li>
+          </ol>
+        </div>
+
+      <div class="row" style="gap:10px">
+        <button class="btn btn--primary" type="submit">Guardar SMS</button>
+      </div>
+    </div>
+  </form>
+  </div>
 
 </div>

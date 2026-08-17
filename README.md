@@ -22,9 +22,9 @@ registra gente, se sella asistencia, se aprueban exposiciones y se exportan repo
 | **Interfaz** | 20 pantallas, diseño configurable por evento, responsive |
 | **Backend** | PHP 8.1+ con PDO y MySQL/MariaDB, sin framework ni Composer |
 | **Instalación** | Asistente de seis pasos que crea, actualiza o anexa las tablas |
-| **Autenticación** | Asistentes por código de correo; equipo con contraseña y segundo factor |
-| **Códigos QR** | Generador propio, verificado contra una librería de referencia |
-| **Pruebas** | 188 comprobaciones de extremo a extremo, más 83 de correo, TOTP, SVG y proxy |
+| **Autenticación** | Cinco formas de entrar: correo, QR personal, contraseña, WhatsApp y SMS. El equipo, con contraseña y segundo factor |
+| **Códigos QR** | Generador **y lector** propios, verificados uno contra otro y contra una librería de referencia |
+| **Pruebas** | 276 comprobaciones de extremo a extremo, 21 en navegador, y 118 más de QR, correo, TOTP, SVG y proxy |
 
 ---
 
@@ -143,14 +143,20 @@ nada.
 tiene ventana horaria y se puede regenerar si se filtra. Al escanearlo: si hay sesión,
 registra el ingreso; si no, lleva al acceso y vuelve para completarlo.
 
-**Código del carnet** (`/c/{token}`) — la credencial de una persona. Quien lo escanea decide
-qué pasa:
+**Código del carnet** (`/c/{token}`) — la credencial de una persona, la que se enseña. Quien
+lo escanea decide qué pasa:
 
 | Quién escanea | Qué obtiene |
 |---|---|
 | Nadie identificado | Se le pregunta quién es y se le lleva al acceso que corresponde. **No se revela de quién es el carnet** |
 | Otro asistente | Intercambio de contacto, recíproco |
 | Operador o administrador | Ficha de acreditación con documento, y el botón de sellar |
+
+**Código de acceso** (`/entrar/qr/{token}`) — el tercero, y el que no hay que confundir con
+el anterior. Aparece en el carnet de su dueño, aparte y rotulado como personal: escanearlo
+**abre su sesión** en el teléfono que sea. Sirve para volver a la plataforma desde otro
+dispositivo, y para entrar cuando el correo no sale. Se anula y se regenera desde
+*Registros*.
 
 El QR **no contiene datos personales**: solo un identificador opaco de 128 bits. Quien
 fotografíe un carnet ajeno no obtiene nada por sí mismo.
@@ -159,6 +165,14 @@ El generador está escrito desde cero, sin dependencias, en PHP y en JavaScript.
 versiones se comparan matriz a matriz entre sí, y la de JavaScript está verificada contra la
 librería `qrcode` de Python en 2 368 casos: versiones 1 a 20, los cuatro niveles de
 corrección y las ocho máscaras.
+
+El **lector** también es propio (`assets/js/qr-lector.js`, ~900 líneas). Existe porque Safari
+en iPhone no trae `BarcodeDetector`, y ahí está la mitad de los asistentes: el lector
+integrado se rendía con un «lector no disponible en este navegador» y dejaba al operador
+tecleando cédulas en la puerta. Binariza con umbral adaptativo, localiza los tres patrones de
+búsqueda, encuentra el de alineación, endereza con una transformación de perspectiva y
+corrige errores con Reed-Solomon. Funciona sobre el vídeo en vivo y sobre una foto tomada con
+la aplicación de cámara del sistema, que es el botón **«Lector desde cámara»**.
 
 ---
 
@@ -241,6 +255,11 @@ php pruebas/smtp.php
 php pruebas/qr-php-contra-js.php          # servidor contra referencia JS
 python3 pruebas/qr-contra-referencia.py   # JS contra la librería de Python
 
+# El lector de QR: se genera con PHP y se decodifica con el lector, sobre
+# matrices, fotos nítidas, fotos pequeñas, con ruido y sombra, inclinadas en
+# trapecio, y con módulos dañados hasta el límite de cada nivel.
+php pruebas/qr-lector.php
+
 # El saneado de los logos SVG
 php pruebas/svg-saneado.php
 
@@ -253,17 +272,23 @@ php pruebas/correo.php
 # Las pantallas en un navegador real
 node pruebas/pantallas.js                 # escritorio
 ANCHO=390 node pruebas/pantallas.js       # móvil
+
+# Y lo que solo se ve al interactuar: pestañas, ficha en diálogo, portada del
+# celular en una columna, y el lector decodificando un código que pinta la
+# propia plataforma.
+node pruebas/interacciones.js
 ```
 
 `extremo-a-extremo.php` habla por HTTP y no llamando a las clases, así que comprueba también
 el enrutado, las cookies, los testigos y los guardias, que es donde suelen estar los errores.
 Incluye 25 comprobaciones de seguridad.
 
-Estado actual: **188 de 188** de extremo a extremo, **28** del segundo factor contra los
-vectores del RFC 6238, **19** del correo saliente, **19** de la dirección del visitante detrás
-del proxy, **17** del saneado de logos SVG, **198** casos de QR idénticos entre PHP y
-JavaScript, **161** entre JavaScript y la referencia, y las 13 pantallas limpias en escritorio
-y móvil.
+Estado actual: **276 de 276** de extremo a extremo, **77** del asistente de instalación,
+**28** del segundo factor contra los vectores del RFC 6238, **22** del hash de contraseñas,
+**19** del correo saliente, **19** de la dirección del visitante detrás del proxy, **17** del
+saneado de logos SVG, **198** casos de QR idénticos entre PHP y JavaScript, **161** entre
+JavaScript y la referencia, **13** del lector de QR, **21** de interacción en navegador, y las
+14 pantallas limpias en escritorio, tableta y móvil.
 
 Las pruebas nacieron de errores reales, y por eso cubren lo que cubren: una instalación que se
 interrumpe a mitad, un administrador atrapado en el bucle del segundo factor, un asistente
@@ -279,8 +304,10 @@ viendo fallar la prueba.
   delante, copias de seguridad, actualizaciones y problemas frecuentes.
 - [`docs/SEGURIDAD.md`](docs/SEGURIDAD.md) — revisión de seguridad: qué reduce riesgo, qué
   controles hay, hallazgos abiertos y cumplimiento de la Ley 1581 de 2012.
-- [`docs/ESQUEMA-DATOS.md`](docs/ESQUEMA-DATOS.md) — las 16 tablas con sus columnas y llaves,
+- [`docs/ESQUEMA-DATOS.md`](docs/ESQUEMA-DATOS.md) — las 17 tablas con sus columnas y llaves,
   generado desde `app/Esquema.php`.
+- [`docs/CORREO-Y-AUTENTICACION.md`](docs/CORREO-Y-AUTENTICACION.md) — las cinco formas de
+  entrar, cómo se configura cada una, y el envío de correo de punta a punta.
 
 ---
 

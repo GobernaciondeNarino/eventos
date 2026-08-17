@@ -26,6 +26,8 @@
  *   --modo=actualizar    limpio | actualizar | anexar. Por defecto actualizar
  *                        si ya hay tablas, y limpio si la base está vacía.
  *   --sin-2fa            no exigir segundo factor al administrador
+ *   --esquema            con --reparar: pone la base al día con esta versión del
+ *                        código (crea tablas y columnas que falten; nunca borra)
  *   --reparar            termina una instalación que se quedó a medias, sin
  *                        tocar las tablas ni los datos que ya existan: crea la
  *                        cuenta administradora si falta, el evento si falta, y
@@ -51,7 +53,7 @@ if (PHP_SAPI !== 'cli') {
 
 define('EVENTOS_TIC', true);
 define('RAIZ', dirname(__DIR__));
-define('APP_VERSION', '3.0.0');
+define('APP_VERSION', '3.1.0');
 
 spl_autoload_register(static function (string $clase): void {
     if (!str_starts_with($clase, 'App\\')) {
@@ -191,10 +193,40 @@ if ($bandera('reparar')) {
     $linea('  ' . $d['tablas'] . ' de ' . $d['esperadas'] . ' tablas · '
         . $d['administradores'] . ' administradores · ' . $d['eventos'] . ' eventos');
 
+    /* ---- Lo que le falte al esquema ------------------------------------
+       Con --esquema, reparar también pone la base al día: crea las tablas que
+       falten y agrega las columnas nuevas. Solo agrega; no borra ni cambia
+       nada de lo que ya hay, así que se puede correr con el evento en curso.
+
+       Es lo que hace falta al actualizar el código de la plataforma copiando
+       archivos: los archivos suben, pero la base no se entera sola. Lo mismo
+       está en el panel, para quien no tiene consola.                       */
+
+    if ($bandera('esquema')) {
+        [$pendiente, $motivo] = Esquema::revisionPendiente();
+        if (!$pendiente) {
+            $bien('El esquema ya estaba al día (versión ' . Esquema::VERSION . ')');
+        } else {
+            $paso('Actualizando el esquema: ' . $motivo);
+            try {
+                $hechas = Esquema::aplicar('actualizar', Esquema::existentes());
+            } catch (\Throwable $e) {
+                $morir('No se pudo actualizar el esquema: ' . $e->getMessage());
+            }
+            foreach ($hechas as $h) {
+                if (in_array($h['accion'], ['creada', 'actualizada'], true)) {
+                    $linea('    · ' . $h['tabla'] . ' ' . $h['accion'] . ': ' . $h['detalle']);
+                }
+            }
+            $bien('Esquema en la versión ' . Esquema::VERSION);
+        }
+        $d = Instalacion::diagnostico();
+    }
+
     if ($d['faltantes']) {
         $morir('Faltan ' . count($d['faltantes']) . ' tablas (' . implode(', ', array_slice($d['faltantes'], 0, 5))
-            . '). Reparar no crea tablas a propósito: eso es la instalación completa, con '
-            . '--modo=actualizar para conservar lo que ya haya.');
+            . '). Añade --esquema para crearlas sin tocar lo que ya hay, o ejecuta la '
+            . 'instalación completa con --modo=actualizar.');
     }
 
     /* ---- La cuenta administradora ------------------------------------- */

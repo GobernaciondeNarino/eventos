@@ -57,6 +57,10 @@
 .btn--danger:hover { background: rgba(var(--c-danger-rgb), .12); border-color: var(--c-danger); color: var(--c-danger); }
 .btn--dashed { border-style: dashed; color: var(--c-muted); }
 
+/* Cuadrado, solo con un icono: para la última columna de una tabla, donde no
+   cabe una palabra. Siempre lleva aria-label. */
+.btn--icono { padding: 0; width: 34px; height: 34px; border-radius: var(--radius); }
+
 /* ---- Formularios ---------------------------------------------------------- */
 .field { display: flex; flex-direction: column; gap: 7px; min-width: 0; }
 .label {
@@ -92,6 +96,10 @@
   background-repeat: no-repeat;
   padding-right: 34px;
 }
+/* Para las celdas de una tabla, donde un campo de altura completa rompe la
+   línea de la fila. */
+.select--sm { padding: 7px 30px 7px 10px; font-size: 12.5px; min-width: 132px; }
+
 .help { font-size: var(--fs-sm); color: var(--c-muted); line-height: 1.55; }
 .error {
   font-family: var(--f-mono); font-size: var(--fs-mono-sm);
@@ -542,6 +550,9 @@
    tarjeta de presentación, y quien la mira tiene que notar la diferencia sin
    leer el texto.
    ========================================================================= */
+/* Tarjeta que no contiene algo, sino que invita a crearlo. */
+.card--dashed { border-style: dashed; }
+
 .card--acceso { border-color: rgba(var(--c-accent-rgb), .45); }
 .card--acceso .card__head { background: rgba(var(--c-accent-rgb), .07); }
 
@@ -625,6 +636,13 @@
    Utilidades
    ========================================================================= */
 .hidden { display: none !important; }
+
+/* El atributo «hidden» del HTML se apoya en una regla del navegador con la
+   especificidad más baja que existe, así que cualquier `display` propio la
+   anula: .stack es flex, y un panel de pestaña con hidden puesto se seguía
+   viendo entero. Se repite aquí con la fuerza suficiente para que hidden
+   signifique lo que dice. */
+[hidden] { display: none !important; }
 .text-right { text-align: right; }
 .text-center { text-align: center; }
 .flex-1 { flex: 1; }

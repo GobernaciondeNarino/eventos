@@ -166,6 +166,43 @@ final class Usuario
         Bitacora::registrar('usuario_estado', 'usuario', $id, ['estado' => $estado]);
     }
 
+    /**
+     * Cambia el rol de una cuenta del equipo.
+     *
+     * Se cierran sus sesiones abiertas a propósito. El rol se comprueba en cada
+     * petición contra la fila de la base, así que no haría falta por seguridad;
+     * pero quien acaba de perder el rol de administrador se quedaba con el menú
+     * completo en pantalla y recibía un 403 en cada clic, sin entender por qué.
+     * Volver a entrar es más claro que eso.
+     */
+    public static function cambiarRol(int $id, string $rol): void
+    {
+        if (!in_array($rol, self::ROLES, true)) {
+            throw new \DomainException('Ese rol no existe.');
+        }
+
+        $anterior = (string) (Bd::valor('SELECT rol FROM {usuario} WHERE id = ?', [$id]) ?? '');
+        if ($anterior === $rol) {
+            return;
+        }
+
+        Bd::ejecutar('UPDATE {usuario} SET rol = ? WHERE id = ?', [$rol, $id]);
+        \App\Nucleo\Sesion::cerrarTodasDe('admin', $id);
+
+        Bitacora::registrar('usuario_rol', 'usuario', $id, [
+            'antes'   => $anterior,
+            'despues' => $rol,
+        ]);
+    }
+
+    /** Cuántos administradores hay activos. Sin ninguno, nadie puede configurar nada. */
+    public static function administradoresActivos(): int
+    {
+        return (int) Bd::valor(
+            "SELECT COUNT(*) FROM {usuario} WHERE rol = 'administrador' AND estado = 'activo'"
+        );
+    }
+
     /* =====================================================================
        Segundo factor
        ===================================================================== */

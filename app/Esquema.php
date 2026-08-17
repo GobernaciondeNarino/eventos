@@ -582,4 +582,41 @@ final class Esquema
             return null;
         }
     }
+
+    /**
+     * ¿Le falta a la base algo de esta versión del código?
+     *
+     * Se mira la versión anotada y, además, si están todas las tablas. Lo
+     * segundo importa: una instalación puede tener anotada la versión correcta
+     * y haberse quedado sin una tabla por un error a mitad, y quien mira el
+     * panel no tiene forma de enterarse hasta que algo falla en la puerta del
+     * evento.
+     *
+     * Devuelve [pendiente, motivo].
+     *
+     * @return array{0: bool, 1: string}
+     */
+    public static function revisionPendiente(): array
+    {
+        try {
+            $faltan = array_values(array_diff(self::nombres(), self::existentes()));
+        } catch (\Throwable) {
+            return [false, ''];
+        }
+
+        if ($faltan !== []) {
+            return [true, 'Faltan ' . count($faltan) . ' tabla(s): ' . implode(', ', $faltan) . '.'];
+        }
+
+        $aplicada = self::versionInstalada();
+        if ($aplicada === null) {
+            return [true, 'No hay ninguna versión anotada en la tabla de migraciones.'];
+        }
+        if (version_compare($aplicada, self::VERSION, '<')) {
+            return [true, 'La base está en la versión ' . $aplicada
+                . ' y el código necesita la ' . self::VERSION . '.'];
+        }
+
+        return [false, ''];
+    }
 }

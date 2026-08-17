@@ -96,7 +96,10 @@ final class Autenticacion
             static fn($m): bool => is_string($m) && isset(self::METODOS[$m])
         ));
 
-        return $validos !== [] ? $validos : ['correo'];
+        // El último cortafuegos: pase lo que pase, quedan dos puertas. Una sola
+        // —y encima la que depende de que el correo salga— es el punto único de
+        // fallo que costó un evento entero.
+        return $validos !== [] ? $validos : ['correo', 'qr'];
     }
 
     public static function activo(string $metodo): bool

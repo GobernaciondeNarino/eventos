@@ -1,6 +1,6 @@
 # Esquema de datos
 
-Plataforma de Eventos TIC · versión del esquema **1.1.0**
+Plataforma de Eventos TIC · versión del esquema **1.3.0**
 
 > Documento generado con `php herramientas/generar-doc-esquema.php` a partir de
 > `app/Esquema.php`, la misma definición que el instalador usa para crear y actualizar
@@ -16,7 +16,7 @@ poder compartir la base con otras aplicaciones del alojamiento.
 | `evt_evento` | 9 | Un registro por evento. La plataforma es multievento desde el día uno. |
 | `evt_evento_tema` | 7 | Identidad visual: paleta, tipografía y logo. Es lo que se convierte en variables CSS. |
 | `evt_evento_dia` | 9 | Las jornadas. El código QR de acceso cuelga de aquí, no del evento: por eso cambia cada día. |
-| `evt_persona` | 16 | Quien se preregistra. El documento va cifrado, con una huella aparte para detectar duplicados sin descifrar. |
+| `evt_persona` | 21 | Quien se preregistra. El documento va cifrado, con una huella aparte para detectar duplicados sin descifrar. |
 | `evt_persona_caracterizacion` | 5 | Datos sensibles (Ley 1581, art. 5) en tabla aparte: las consultas del día a día no los tocan y su lectura se audita. |
 | `evt_credencial` | 7 | El carnet. El token es lo único que viaja en el QR; nunca datos personales. |
 | `evt_asistencia` | 7 | Un ingreso por persona y jornada. La llave única es lo que impide contar dos veces a la misma persona. |
@@ -25,6 +25,7 @@ poder compartir la base con otras aplicaciones del alojamiento.
 | `evt_charla` | 6 | La agenda pública: propuestas aprobadas con horario y salón asignados. |
 | `evt_usuario` | 13 | El equipo organizador. Contraseña con Argon2id y segundo factor obligatorio para el rol administrador. |
 | `evt_sesion` | 9 | Sesiones en base de datos: se pueden cerrar a distancia y no quedan en archivos compartidos del servidor. |
+| `evt_dispositivo` | 8 | Teléfonos desde los que un asistente ya entró. Le evitan volver a pedir el código cada vez. |
 | `evt_codigo_acceso` | 7 | Códigos de un solo uso que se envían por correo al asistente. Se guarda el hash, no el código. |
 | `evt_intento` | 5 | Contador de intentos fallidos para el límite de fuerza bruta. La clave se guarda como HMAC, no en claro. |
 | `evt_bitacora` | 8 | Auditoría. Quién hizo qué, cuándo y desde dónde. Solo se inserta: no se actualiza ni se borra. |
@@ -146,6 +147,11 @@ Quien se preregistra. El documento va cifrado, con una huella aparte para detect
 | `municipio` | `VARCHAR(80) NOT NULL DEFAULT ''` |
 | `rol` | `ENUM('participante','visitante','expositor','organizador','prensa') NOT NULL DEFAULT 'participante'` |
 | `comparte_telefono` | `TINYINT(1) NOT NULL DEFAULT 1` |
+| `clave_hash` | `VARCHAR(255) NOT NULL DEFAULT ''` |
+| `foto` | `VARCHAR(80) NOT NULL DEFAULT ''` |
+| `foto_tipo` | `VARCHAR(40) NOT NULL DEFAULT ''` |
+| `acceso_token` | `VARCHAR(32) NULL DEFAULT NULL` |
+| `acceso_token_en` | `DATETIME NULL DEFAULT NULL` |
 | `en_directorio` | `TINYINT(1) NOT NULL DEFAULT 0` |
 | `autorizo_datos_en` | `DATETIME NOT NULL` |
 | `creado_en` | `DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP` |
@@ -157,6 +163,7 @@ Llaves e índices:
 - `UNIQUE KEY uq_persona_doc (evento_id, documento_huella)`
 - `KEY idx_persona_municipio (evento_id, municipio)`
 - `KEY idx_persona_rol (evento_id, rol)`
+- `UNIQUE KEY uq_persona_acceso (acceso_token)`
 - `CONSTRAINT fk_persona_evento FOREIGN KEY (evento_id) REFERENCES `evt_evento` (id) ON DELETE CASCADE`
 
 ### `evt_persona_caracterizacion`
@@ -332,6 +339,28 @@ Llaves e índices:
 - `PRIMARY KEY (id)`
 - `KEY idx_sesion_expira (expira_en)`
 - `KEY idx_sesion_sujeto (tipo, sujeto_id)`
+
+### `evt_dispositivo`
+
+Teléfonos desde los que un asistente ya entró. Le evitan volver a pedir el código cada vez.
+
+| Columna | Tipo |
+|---|---|
+| `selector` | `CHAR(32) NOT NULL` |
+| `persona_id` | `INT UNSIGNED NOT NULL` |
+| `validador_hash` | `CHAR(64) NOT NULL` |
+| `agente` | `VARCHAR(255) NOT NULL DEFAULT ''` |
+| `ip` | `VARBINARY(16) NULL` |
+| `ultimo_uso` | `DATETIME NOT NULL` |
+| `expira_en` | `DATETIME NOT NULL` |
+| `creado_en` | `DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP` |
+
+Llaves e índices:
+
+- `PRIMARY KEY (selector)`
+- `KEY idx_dispositivo_persona (persona_id)`
+- `KEY idx_dispositivo_expira (expira_en)`
+- `CONSTRAINT fk_dispositivo_persona FOREIGN KEY (persona_id) REFERENCES `evt_persona` (id) ON DELETE CASCADE`
 
 ### `evt_codigo_acceso`
 

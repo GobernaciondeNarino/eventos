@@ -9,6 +9,16 @@
    Las capturas quedan en pruebas/capturas/. */
 
 const { chromium } = require('playwright');
+const fs = require('fs');
+
+/* El navegador que trae el entorno puede no ser el que espera esta versión de
+   Playwright. Si hay uno instalado en /opt/pw-browsers se usa ese, en vez de
+   pedir una descarga que en un servidor sin salida a internet no va a ocurrir. */
+const EJECUTABLE = [
+  '/opt/pw-browsers/chromium/chrome-linux/chrome',
+  '/opt/pw-browsers/chromium-1194/chrome-linux/chrome',
+].find(r => { try { return fs.existsSync(r); } catch (e) { return false; } });
+const LANZAR = EJECUTABLE ? { executablePath: EJECUTABLE } : {};
 const path = require('path');
 
 const BASE = (process.argv[2] || 'http://127.0.0.1:8900/cumbreAI').replace(/\/$/, '');
@@ -21,7 +31,7 @@ const ASISTENTE = 'mzambrano@narino.gov.co';
 const PUBLICAS = ['/', '/preregistro', '/agenda', '/entrar', '/admin/entrar'];
 const ASISTENTE_RUTAS = ['/carnet', '/checkin', '/contactos'];
 const ADMIN_RUTAS = ['/admin', '/admin/escaner', '/admin/registros', '/admin/qr-dias',
-                     '/admin/expositores', '/admin/organizadores', '/admin/eventos', '/admin/identidad'];
+                     '/admin/expositores', '/admin/organizadores', '/admin/eventos', '/admin/identidad', '/admin/autenticacion'];
 
 let fallos = 0;
 
@@ -89,7 +99,7 @@ async function revisar(page, ruta, etiqueta) {
 }
 
 (async () => {
-  const navegador = await chromium.launch();
+  const navegador = await chromium.launch(LANZAR);
   console.log('Ancho ' + ANCHO + 'px · ' + BASE + '\n');
 
   // ---- Público ----

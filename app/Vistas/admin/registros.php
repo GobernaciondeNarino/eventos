@@ -8,8 +8,9 @@ defined('EVENTOS_TIC') || exit;
 
 use App\Modelos\Persona;
 
-$columnas = 'grid-template-columns:1.5fr 1fr 1.1fr 1.2fr .8fr .9fr';
+$columnas = 'grid-template-columns:1.5fr 1fr 1.1fr 1.2fr .8fr .9fr 44px';
 $conFiltro = array_filter($filtros);
+guiones('registros.js');
 ?>
 <div class="view view--wide stack stack--4">
 
@@ -93,6 +94,7 @@ $conFiltro = array_filter($filtros);
         <div class="table__head" style="<?= $columnas ?>">
           <span>Asistente</span><span>Documento</span><span>Municipio</span>
           <span>Entidad</span><span>Perfil</span><span>Ingresos</span>
+          <span class="sr-only">Ficha</span>
         </div>
 
         <?php if (!$personas): ?>
@@ -115,6 +117,20 @@ $conFiltro = array_filter($filtros);
                       title="Día <?= e((string) $j['numero']) ?><?= $on ? ': con ingreso' : ': sin ingreso' ?>"><?= e((string) $j['numero']) ?></span>
               <?php endforeach; ?>
             </div>
+
+            <!-- Es un enlace de verdad, a una pantalla que existe: sin
+                 JavaScript abre la ficha en su propia dirección; con él, el
+                 guion la trae y la muestra en un diálogo sin salir de la
+                 tabla. -->
+            <a class="btn btn--icono" href="<?= e(u('/admin/registros/' . (int) $p['id'])) ?>"
+               data-ficha="<?= e(u('/admin/registros/' . (int) $p['id'])) ?>"
+               title="Ver la ficha de <?= e($p['nombre']) ?>"
+               aria-label="Ver la ficha de <?= e($p['nombre']) ?>">
+              <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor"
+                   stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M12 12.5a4 4 0 1 0 0-8 4 4 0 0 0 0 8M5 20.5a7 7 0 0 1 14 0"></path>
+              </svg>
+            </a>
           </div>
         <?php endforeach; endif; ?>
       </div>
@@ -135,6 +151,23 @@ $conFiltro = array_filter($filtros);
     </span>
   </div>
 
+</div>
+
+<!-- Diálogo de la ficha. El contenido lo trae el guion desde
+     /admin/registros/{id}; sin JavaScript el botón navega a esa misma
+     dirección y este bloque no se usa nunca. -->
+<div class="modal hidden" id="modal-ficha" hidden>
+  <div class="modal__panel" role="dialog" aria-modal="true" aria-label="Ficha del asistente">
+    <div class="modal__head">
+      <span>Ficha del asistente</span>
+      <button class="modal__close" type="button" data-cerrar-modal aria-label="Cerrar">&times;</button>
+    </div>
+    <div class="modal__body" data-ficha-destino>
+      <div class="row" style="justify-content:center;padding:24px">
+        <span class="spinner"></span>
+      </div>
+    </div>
+  </div>
 </div>
 
 <?php if ($puedeVerSensibles): ?>

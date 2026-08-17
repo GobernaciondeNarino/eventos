@@ -1,5 +1,9 @@
 <?php
-/** Códigos QR por jornada. @var array $jornadas @var bool $puedeRotar */
+/**
+ * Códigos QR por jornada.
+ * @var array $jornadas @var bool $puedeRotar @var bool $puedeEditarDias
+ * @var string $siguienteFecha
+ */
 defined('EVENTOS_TIC') || exit;
 
 $hoy = date('Y-m-d');
@@ -58,9 +62,88 @@ $hoy = date('Y-m-d');
                       data-abrir-modal="modal-rotar-<?= (int) $j['numero'] ?>">Regenerar</button>
             <?php endif; ?>
           </div>
+
+          <?php if ($puedeEditarDias): ?>
+            <details class="stack" style="gap:10px">
+              <summary class="help" style="cursor:pointer">Cambiar fecha u horario</summary>
+
+              <form method="post" action="<?= e(u('/admin/qr-dias/ajustar')) ?>" class="stack stack--3">
+                <?= testigo() ?>
+                <input type="hidden" name="numero" value="<?= e((string) $j['numero']) ?>">
+                <div class="field">
+                  <label class="label" for="fecha-<?= (int) $j['numero'] ?>">Fecha</label>
+                  <input class="input" type="date" id="fecha-<?= (int) $j['numero'] ?>"
+                         name="fecha" value="<?= e((string) $j['fecha']) ?>" required>
+                </div>
+                <div class="grid-2">
+                  <div class="field">
+                    <label class="label" for="abre-<?= (int) $j['numero'] ?>">Abre</label>
+                    <input class="input" type="time" id="abre-<?= (int) $j['numero'] ?>"
+                           name="abre_a" value="<?= e(substr((string) $j['abre_a'], 0, 5)) ?>">
+                  </div>
+                  <div class="field">
+                    <label class="label" for="cierra-<?= (int) $j['numero'] ?>">Cierra</label>
+                    <input class="input" type="time" id="cierra-<?= (int) $j['numero'] ?>"
+                           name="cierra_a" value="<?= e(substr((string) $j['cierra_a'], 0, 5)) ?>">
+                  </div>
+                </div>
+                <button class="btn btn--sm" type="submit">Guardar el día <?= e((string) $j['numero']) ?></button>
+              </form>
+
+              <?php if ((int) $j['ingresos'] === 0): ?>
+                <form method="post" action="<?= e(u('/admin/qr-dias/eliminar')) ?>"
+                      data-confirmar="Se eliminará el día <?= e((string) $j['numero']) ?> y su código QR dejará de servir. ¿Continuar?">
+                  <?= testigo() ?>
+                  <input type="hidden" name="numero" value="<?= e((string) $j['numero']) ?>">
+                  <button class="btn btn--sm btn--danger btn--block" type="submit">Eliminar este día</button>
+                </form>
+              <?php else: ?>
+                <p class="help" style="margin:0">
+                  No se puede eliminar: ya tiene <?= e(numero($j['ingresos'])) ?> ingreso<?= (int) $j['ingresos'] === 1 ? '' : 's' ?>
+                  registrado<?= (int) $j['ingresos'] === 1 ? '' : 's' ?>, y borrarlo se llevaría esos datos.
+                </p>
+              <?php endif; ?>
+            </details>
+          <?php endif; ?>
         </div>
       </div>
     <?php endforeach; ?>
+
+    <?php if ($puedeEditarDias): ?>
+      <!-- Los eventos se alargan. Hasta ahora el número de jornadas se fijaba
+           al crear el evento y la única salida era volver a instalarlo. -->
+      <form class="card card--dashed stack" style="gap:0" method="post"
+            action="<?= e(u('/admin/qr-dias/agregar')) ?>">
+        <?= testigo() ?>
+        <div class="card__head" style="color:inherit">
+          <strong style="font-family:var(--f-display);font-size:17px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--c-title)">
+            Agregar un día
+          </strong>
+        </div>
+        <div class="card__body stack stack--3">
+          <p class="help" style="margin:0">
+            Se crea con su propio código QR. No tiene que ser el día siguiente: un evento
+            puede tener dos jornadas seguidas y una de cierre la semana entrante.
+          </p>
+          <div class="field">
+            <label class="label" for="nueva-fecha">Fecha</label>
+            <input class="input" type="date" id="nueva-fecha" name="fecha"
+                   value="<?= e($siguienteFecha) ?>" required>
+          </div>
+          <div class="grid-2">
+            <div class="field">
+              <label class="label" for="nueva-abre">Abre</label>
+              <input class="input" type="time" id="nueva-abre" name="abre_a" value="06:00">
+            </div>
+            <div class="field">
+              <label class="label" for="nueva-cierra">Cierra</label>
+              <input class="input" type="time" id="nueva-cierra" name="cierra_a" value="22:00">
+            </div>
+          </div>
+          <button class="btn btn--primary btn--block" type="submit">Agregar la jornada</button>
+        </div>
+      </form>
+    <?php endif; ?>
   </div>
 
   <div class="card">

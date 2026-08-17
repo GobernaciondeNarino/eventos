@@ -1,4 +1,9 @@
-/* Carga cada pantalla en un navegador real y verifica que se arme el armazón,
+/* HISTÓRICO. Este guion apunta a la maqueta estática que vivía en public/,
+   reemplazada por las vistas PHP. Se conserva por si alguna comprobación sirve
+   al portarla; la que vale hoy es pruebas/pantallas.js, que carga la
+   plataforma de verdad.
+
+   Carga cada pantalla en un navegador real y verifica que se arme el armazón,
    que no haya errores de consola y que nada desborde en horizontal.
 
    Uso:  node pruebas/paginas.js            (escritorio, 1440 px)
@@ -8,6 +13,16 @@
          npx http-server public -p 8899 -s
 */
 const { chromium } = require('playwright');
+const fs = require('fs');
+
+/* El navegador que trae el entorno puede no ser el que espera esta versión de
+   Playwright. Si hay uno instalado en /opt/pw-browsers se usa ese, en vez de
+   pedir una descarga que en un servidor sin salida a internet no va a ocurrir. */
+const EJECUTABLE = [
+  '/opt/pw-browsers/chromium/chrome-linux/chrome',
+  '/opt/pw-browsers/chromium-1194/chrome-linux/chrome',
+].find(r => { try { return fs.existsSync(r); } catch (e) { return false; } });
+const LANZAR = EJECUTABLE ? { executablePath: EJECUTABLE } : {};
 const path = require('path');
 
 const BASE = 'http://127.0.0.1:8899';
@@ -20,7 +35,7 @@ const PAGINAS = [
 const paginas = process.argv.slice(2).length ? process.argv.slice(2) : PAGINAS;
 
 (async () => {
-  const browser = await chromium.launch();
+  const browser = await chromium.launch(LANZAR);
   let fallos = 0;
   for (const p of paginas) {
     const ancho = Number(process.env.ANCHO || 1440);

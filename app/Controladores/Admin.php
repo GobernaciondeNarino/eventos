@@ -7,14 +7,17 @@ defined('EVENTOS_TIC') || exit;
 
 use App\Datos;
 use App\Modelos\Asistencia;
+use App\Modelos\Credencial;
 use App\Modelos\Evento;
 use App\Modelos\Persona;
 use App\Modelos\Usuario;
 use App\Nucleo\App;
+use App\Nucleo\Autenticacion;
 use App\Nucleo\Bd;
 use App\Nucleo\Bitacora;
 use App\Nucleo\Config;
 use App\Nucleo\Correo;
+use App\Nucleo\Dispositivo;
 use App\Nucleo\Guardia;
 use App\Nucleo\Peticion;
 use App\Nucleo\Qr;
@@ -41,6 +44,12 @@ final class Admin
     {
         $evento = App::eventoExigido();
 
+        // Si el código subió de versión y la base se quedó atrás, el panel lo
+        // dice arriba del todo. Antes no lo decía nadie: la plataforma
+        // funcionaba a medias —una pantalla nueva contra una tabla que no
+        // existe— y el fallo aparecía en la puerta del evento.
+        [$esquemaPendiente, $motivoEsquema] = \App\Esquema::revisionPendiente();
+
         Respuesta::vista('admin/panel', [
             'titulo'      => 'Panel',
             'pantalla'    => 'panel',
@@ -49,7 +58,49 @@ final class Admin
             'municipios'  => Evento::porMunicipio((int) $evento['id']),
             'bitacora'    => Bitacora::recientes(12),
             'pendientes'  => $this->pendientes((int) $evento['id']),
+            'esquemaPendiente' => $esquemaPendiente && Guardia::puede('administrador'),
+            'motivoEsquema'    => $motivoEsquema,
+            'versionEsquema'   => \App\Esquema::VERSION,
         ]);
+    }
+
+    /**
+     * Aplica al esquema lo que falte para esta versión del código.
+     *
+     * Solo agrega: crea las tablas que no estén y las columnas que falten. No
+     * borra ni cambia nada de lo que ya hay, que es lo que permite ejecutarlo
+     * sobre una base con el evento en curso.
+     */
+    public function actualizarEsquema(Peticion $peticion): void
+    {
+        [$pendiente, $motivo] = \App\Esquema::revisionPendiente();
+        if (!$pendiente) {
+            Respuesta::redirigir('/admin', 'La base de datos ya estaba al día.', 'ok');
+        }
+
+        try {
+            $hechas = \App\Esquema::aplicar('actualizar', \App\Esquema::existentes());
+        } catch (\Throwable $e) {
+            \App\Nucleo\Registro::excepcion($e);
+            Respuesta::redirigir('/admin',
+                'No se pudo actualizar la base: ' . $e->getMessage(), 'warn');
+        }
+
+        $cambiadas = array_values(array_filter(
+            $hechas,
+            static fn(array $h): bool => in_array($h['accion'], ['creada', 'actualizada'], true)
+        ));
+
+        Bitacora::registrar('esquema_actualizado', 'sistema', null, [
+            'version' => \App\Esquema::VERSION,
+            'motivo'  => $motivo,
+            'cambios' => count($cambiadas),
+        ]);
+
+        Respuesta::redirigir('/admin', $cambiadas === []
+            ? 'La base quedó marcada en la versión ' . \App\Esquema::VERSION . '; no hizo falta cambiar nada.'
+            : 'Base de datos actualizada a la versión ' . \App\Esquema::VERSION . ': '
+              . count($cambiadas) . ' tabla(s) creadas o ampliadas.');
     }
 
     /** Cosas que alguien debería mirar hoy. */
@@ -167,6 +218,136 @@ final class Admin
             // que compara contra el documento físico al acreditar.
             'puedeVerDocumento' => Guardia::puede('operador'),
         ]);
+    }
+
+    /**
+     * Ficha completa de una persona, para el botón de perfil de la tabla.
+     *
+     * Es una pantalla de verdad y no solo un diálogo: se puede abrir en su
+     * propia dirección, enlazar y recargar. Cuando la pide el guion de la tabla
+     * —con la cabecera de petición asíncrona— se devuelve únicamente el
+     * fragmento, que es lo que se mete en el diálogo.
+     *
+     * Leer la ficha de alguien es leer sus datos personales, así que queda en
+     * la bitácora igual que la pantalla de acreditación.
+     */
+    public function ficha(Peticion $peticion, array $parametros): void
+    {
+        $evento = App::eventoExigido();
+        $persona = Persona::porId((int) $parametros['persona']);
+
+        if (!$persona || (int) $persona['evento_id'] !== (int) $evento['id']) {
+            Respuesta::error(404, 'Registro no encontrado',
+                'Esa persona no está registrada en el evento activo.');
+        }
+
+        $id = (int) $persona['id'];
+        Bitacora::registrar('ficha_consultada', 'persona', $id);
+
+        $esAdministrador = Guardia::puede('administrador');
+
+        $datos = [
+            'titulo'    => $persona['nombre'],
+            'pantalla'  => 'admin-registros',
+            'persona'   => $persona,
+            'documento' => Guardia::puede('operador') ? Persona::documento($persona) : '',
+            'credencial' => Credencial::dePersona($id),
+            'historial' => Asistencia::historial($id, (int) $persona['evento_id']),
+            'contactos' => (int) Bd::valor(
+                'SELECT COUNT(*) FROM {contacto} WHERE persona_id = ? AND revocado_en IS NULL',
+                [$id]
+            ),
+            // La caracterización es dato sensible (Ley 1581, art. 5).
+            'caracterizacion' => $esAdministrador ? Persona::caracterizacion($id) : [],
+            'esAdministrador' => $esAdministrador,
+            'tieneClave'      => Persona::tieneClave($persona),
+            'qrActivo'        => Autenticacion::activo('qr'),
+            'claveNueva'      => (string) ($parametros['claveNueva'] ?? ''),
+            'urlAcceso'       => '',
+        ];
+
+        // El QR de acceso solo se pinta si un administrador lo pidió: es una
+        // llave, y no tiene por qué aparecer en pantalla cada vez que alguien
+        // del equipo abre una ficha.
+        $pideQr = !empty($parametros['conQr']) || $peticion->query('qr') === '1';
+        if ($esAdministrador && $datos['qrActivo'] && $pideQr) {
+            $datos['urlAcceso'] = Credencial::urlAcceso($id);
+            $datos['qrAcceso'] = Qr::svg($datos['urlAcceso'], [
+                'nivel' => 'Q', 'silencio' => 2, 'clase' => 'qr', 'titulo' => 'QR de acceso',
+            ]);
+        }
+
+        if ($peticion->esAjax()) {
+            header('Content-Type: text/html; charset=utf-8');
+            header('Cache-Control: private, no-store');
+            echo Respuesta::parcial('admin/ficha-persona', $datos);
+            exit;
+        }
+
+        Respuesta::vista('admin/ficha-persona', $datos);
+    }
+
+    /**
+     * Restablece la contraseña de un asistente.
+     *
+     * No hay forma de «ver» la contraseña de nadie, y no es una limitación de
+     * esta pantalla: se guarda como un hash Argon2id, que es una función de un
+     * solo sentido. Si se pudiera leer, cualquiera que copiara la tabla
+     * tendría las contraseñas de todos los asistentes en claro.
+     *
+     * Lo que sí se puede hacer es lo que hace cualquier sistema serio: generar
+     * una nueva, mostrarla una sola vez y que la persona la cambie. La anterior
+     * deja de servir en ese momento.
+     */
+    public function restablecerClave(Peticion $peticion): void
+    {
+        $evento = App::eventoExigido();
+        $id = $peticion->entero('persona');
+        $persona = Persona::porId($id);
+
+        if (!$persona || (int) $persona['evento_id'] !== (int) $evento['id']) {
+            Respuesta::redirigir('/admin/registros', 'Esa persona no existe en este evento.', 'warn');
+        }
+
+        // Legible por teléfono: sin caracteres que se confundan al dictarla en
+        // la puerta de un recinto con ruido.
+        $alfabeto = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+        $nueva = '';
+        for ($i = 0; $i < 10; $i++) {
+            $nueva .= $alfabeto[random_int(0, strlen($alfabeto) - 1)];
+        }
+
+        Persona::ponerClave($id, $nueva);
+
+        // Se cierran sus sesiones: si alguien pide restablecer la contraseña es
+        // porque perdió el control de la cuenta, y dejar abiertas las sesiones
+        // anteriores haría inútil el cambio.
+        Sesion::cerrarTodasDe('asistente', $id);
+        Dispositivo::olvidarTodos($id);
+
+        Bitacora::registrar('clave_asistente_restablecida', 'persona', $id);
+
+        // La contraseña nueva NO viaja en la redirección ni en el aviso: se
+        // pinta directamente en la respuesta de esta petición, una sola vez.
+        $this->ficha($peticion, ['persona' => $id, 'claveNueva' => $nueva]);
+    }
+
+    /** Cambia el token del QR de acceso de una persona. */
+    public function regenerarQrAcceso(Peticion $peticion): void
+    {
+        $evento = App::eventoExigido();
+        $id = $peticion->entero('persona');
+        $persona = Persona::porId($id);
+
+        if (!$persona || (int) $persona['evento_id'] !== (int) $evento['id']) {
+            Respuesta::redirigir('/admin/registros', 'Esa persona no existe en este evento.', 'warn');
+        }
+
+        Persona::regenerarTokenDeAcceso($id);
+        Dispositivo::olvidarTodos($id);
+        Bitacora::registrar('qr_acceso_regenerado', 'persona', $id);
+
+        $this->ficha($peticion, ['persona' => $id, 'conQr' => true]);
     }
 
     /**
@@ -288,11 +469,18 @@ final class Admin
         }
         unset($j);
 
+        // Por omisión, el día siguiente al último: es lo que se agrega el 90 %
+        // de las veces, y quien necesite otra fecha solo tiene que cambiarla.
+        $ultima = $jornadas ? (string) end($jornadas)['fecha'] : date('Y-m-d');
+        $siguiente = date('Y-m-d', strtotime($ultima . ' +1 day'));
+
         Respuesta::vista('admin/qr-dias', [
             'titulo'   => 'Códigos QR por día',
             'pantalla' => 'admin-qr',
             'jornadas' => $jornadas,
             'puedeRotar' => Guardia::puede('administrador'),
+            'puedeEditarDias' => Guardia::puede('administrador'),
+            'siguienteFecha'  => $siguiente,
         ]);
     }
 
@@ -314,6 +502,68 @@ final class Admin
                                              'titulo' => 'Código de acceso']),
             'sinPlantilla' => true,
         ]);
+    }
+
+    /**
+     * Agrega una jornada al evento.
+     *
+     * El número de días se fijaba al crear el evento y no se podía tocar: si el
+     * evento se alargaba un día, la única salida era volver a instalarlo.
+     */
+    public function agregarJornada(Peticion $peticion): void
+    {
+        $evento = App::eventoExigido();
+
+        try {
+            $numero = Evento::agregarJornada(
+                (int) $evento['id'],
+                $peticion->campo('fecha'),
+                $peticion->campo('abre_a'),
+                $peticion->campo('cierra_a')
+            );
+        } catch (\DomainException $e) {
+            Respuesta::redirigir('/admin/qr-dias', $e->getMessage(), 'warn');
+        }
+
+        App::olvidarEvento();
+        Respuesta::redirigir('/admin/qr-dias',
+            'Día ' . $numero . ' agregado, con su propio código QR. Imprímelo para la entrada.');
+    }
+
+    public function eliminarJornada(Peticion $peticion): void
+    {
+        $evento = App::eventoExigido();
+        $numero = $peticion->entero('numero');
+
+        try {
+            Evento::eliminarJornada((int) $evento['id'], $numero);
+        } catch (\DomainException $e) {
+            Respuesta::redirigir('/admin/qr-dias', $e->getMessage(), 'warn');
+        }
+
+        App::olvidarEvento();
+        Respuesta::redirigir('/admin/qr-dias', 'Día ' . $numero . ' eliminado.');
+    }
+
+    public function ajustarJornada(Peticion $peticion): void
+    {
+        $evento = App::eventoExigido();
+        $numero = $peticion->entero('numero');
+
+        try {
+            Evento::ajustarJornada(
+                (int) $evento['id'],
+                $numero,
+                $peticion->campo('fecha'),
+                $peticion->campo('abre_a'),
+                $peticion->campo('cierra_a')
+            );
+        } catch (\DomainException $e) {
+            Respuesta::redirigir('/admin/qr-dias', $e->getMessage(), 'warn');
+        }
+
+        App::olvidarEvento();
+        Respuesta::redirigir('/admin/qr-dias', 'Día ' . $numero . ' actualizado.');
     }
 
     public function rotarCodigo(Peticion $peticion): void
@@ -514,18 +764,63 @@ final class Admin
         }
 
         // Sin administradores activos nadie podría volver a configurar nada.
-        if ($objetivo['rol'] === 'administrador' && $peticion->campo('estado') === 'suspendido') {
-            $activos = (int) Bd::valor(
-                "SELECT COUNT(*) FROM {usuario} WHERE rol = 'administrador' AND estado = 'activo'"
-            );
-            if ($activos <= 1) {
-                Respuesta::redirigir('/admin/organizadores',
-                    'Es el único administrador activo. Nombra otro antes de suspenderlo.', 'warn');
-            }
+        if ($objetivo['rol'] === 'administrador'
+            && $peticion->campo('estado') === 'suspendido'
+            && Usuario::administradoresActivos() <= 1) {
+            Respuesta::redirigir('/admin/organizadores',
+                'Es el único administrador activo. Nombra otro antes de suspenderlo.', 'warn');
         }
 
         Usuario::cambiarEstado($id, $peticion->campo('estado'));
         Respuesta::redirigir('/admin/organizadores', 'Estado de la cuenta actualizado.');
+    }
+
+    /**
+     * Cambia el rol de una cuenta del equipo.
+     *
+     * Hasta ahora el rol solo se elegía al crear la cuenta: para pasar a
+     * alguien de consulta a operador —que en un evento pasa el mismo día, con
+     * gente que llega a ayudar en la puerta— había que borrar la cuenta y
+     * crearla otra vez, perdiendo su historial en la bitácora.
+     */
+    public function cambiarRolUsuario(Peticion $peticion): void
+    {
+        $yo = Guardia::usuarioActual();
+        $id = $peticion->entero('usuario');
+        $rol = $peticion->campo('rol');
+
+        // Quitarse a uno mismo el rol de administrador es la forma más rápida
+        // de quedarse fuera del panel sin nadie que lo devuelva.
+        if ($id === (int) $yo['id']) {
+            Respuesta::redirigir('/admin/organizadores',
+                'No puedes cambiar tu propio rol. Pídeselo a otro administrador.', 'warn');
+        }
+
+        $objetivo = Usuario::porId($id);
+        if (!$objetivo) {
+            Respuesta::redirigir('/admin/organizadores', 'Esa cuenta no existe.', 'warn');
+        }
+        if (!in_array($rol, Usuario::ROLES, true)) {
+            Respuesta::redirigir('/admin/organizadores', 'Ese rol no existe.', 'warn');
+        }
+
+        // La misma barrera que en el estado: quedarse sin ningún administrador
+        // activo deja la plataforma sin nadie que pueda configurarla.
+        if ($objetivo['rol'] === 'administrador' && $rol !== 'administrador'
+            && $objetivo['estado'] === 'activo'
+            && Usuario::administradoresActivos() <= 1) {
+            Respuesta::redirigir('/admin/organizadores',
+                'Es el único administrador activo. Nombra otro antes de quitarle el rol.', 'warn');
+        }
+
+        try {
+            Usuario::cambiarRol($id, $rol);
+        } catch (\DomainException $e) {
+            Respuesta::redirigir('/admin/organizadores', $e->getMessage(), 'warn');
+        }
+
+        Respuesta::redirigir('/admin/organizadores',
+            $objetivo['nombre'] . ' ahora es ' . $rol . '. Tendrá que volver a entrar.');
     }
 
     /* =====================================================================
@@ -1050,22 +1345,27 @@ final class Admin
     }
 
     /** Guarda los métodos de acceso y su configuración. */
+    /**
+     * Guarda la configuración de autenticación.
+     *
+     * La pantalla está organizada por pestañas y cada una envía lo suyo, así
+     * que el campo «seccion» dice qué parte llegó. Sin él, guardar WhatsApp
+     * habría borrado la configuración de SMS —los campos ausentes en un envío
+     * llegan vacíos, no «sin cambios»—, que es el error clásico al partir un
+     * formulario largo en varios.
+     *
+     * «todo» conserva el comportamiento anterior, para cualquier enlace o
+     * guion que siga enviando el formulario completo.
+     */
     public function guardarAutenticacion(Peticion $peticion): void
     {
-        $enviados = $peticion->campoArreglo('metodos');
-        $validos = array_values(array_filter(
-            $enviados,
-            static fn($m): bool => is_string($m) && isset(\App\Nucleo\Autenticacion::METODOS[$m])
-        ));
-        if ($validos === []) {
-            Respuesta::redirigir('/admin/autenticacion',
-                'Deja al menos un método activo: si no, nadie podría entrar.', 'warn');
+        $seccion = $peticion->campo('seccion', 'todo');
+        if (!in_array($seccion, ['todo', 'metodos', 'clave', 'whatsapp', 'sms'], true)) {
+            Respuesta::redirigir('/admin/autenticacion', 'Sección desconocida.', 'warn');
         }
 
-        $preferido = $peticion->campo('metodo_preferido', $validos[0]);
-        if (!in_array($preferido, $validos, true)) {
-            $preferido = $validos[0];
-        }
+        $nuevos = [];
+        $resumen = 'Configuración guardada.';
 
         // Igual que en el correo: vacío significa «déjala como está».
         $tokenDe = function (string $prefijo) use ($peticion): string {
@@ -1078,26 +1378,65 @@ final class Admin
                 : (string) Config::obtener($prefijo . '_token', '');
         };
 
-        $waProveedor = $peticion->campo('wa_proveedor', 'meta');
-        $smsProveedor = $peticion->campo('sms_proveedor', 'twilio');
-        if (!\App\Nucleo\Mensajeria::conocido('whatsapp', $waProveedor)
-            || !\App\Nucleo\Mensajeria::conocido('sms', $smsProveedor)) {
-            Respuesta::redirigir('/admin/autenticacion', 'Ese proveedor no existe.', 'warn');
+        if ($seccion === 'todo' || $seccion === 'metodos') {
+            $validos = array_values(array_filter(
+                $peticion->campoArreglo('metodos'),
+                static fn($m): bool => is_string($m) && isset(Autenticacion::METODOS[$m])
+            ));
+            if ($validos === []) {
+                Respuesta::redirigir('/admin/autenticacion',
+                    'Deja al menos un método activo: si no, nadie podría entrar.', 'warn');
+            }
+
+            $preferido = $peticion->campo('metodo_preferido', $validos[0]);
+            if (!in_array($preferido, $validos, true)) {
+                $preferido = $validos[0];
+            }
+
+            $nuevos['auth_metodos'] = $validos;
+            $nuevos['auth_metodo_preferido'] = $preferido;
+            $resumen = 'Métodos de acceso guardados: ' . implode(', ', $validos) . '.';
+
+            Bitacora::registrar('autenticacion_configurada', 'sistema', null, [
+                'metodos'   => $validos,
+                'preferido' => $preferido,
+            ]);
         }
 
-        $nuevos = [
-            'auth_metodos'          => $validos,
-            'auth_metodo_preferido' => $preferido,
-            'auth_clave_minima'     => max(6, min(64, (int) $peticion->campo('auth_clave_minima', '8'))),
-            'wa_proveedor'  => $waProveedor,
-            'wa_cuenta'     => mb_substr(trim($peticion->campo('wa_cuenta')), 0, 190),
-            'wa_remitente'  => mb_substr(trim($peticion->campo('wa_remitente')), 0, 40),
-            'wa_token'      => $tokenDe('wa'),
-            'sms_proveedor' => $smsProveedor,
-            'sms_cuenta'    => mb_substr(trim($peticion->campo('sms_cuenta')), 0, 400),
-            'sms_remitente' => mb_substr(trim($peticion->campo('sms_remitente')), 0, 40),
-            'sms_token'     => $tokenDe('sms'),
-        ];
+        if ($seccion === 'todo' || $seccion === 'clave') {
+            $nuevos['auth_clave_minima'] = max(6, min(64, (int) $peticion->campo('auth_clave_minima', '8')));
+            if ($seccion === 'clave') {
+                $resumen = 'La contraseña mínima queda en ' . $nuevos['auth_clave_minima'] . ' caracteres.';
+            }
+        }
+
+        if ($seccion === 'todo' || $seccion === 'whatsapp') {
+            $proveedor = $peticion->campo('wa_proveedor', 'meta');
+            if (!\App\Nucleo\Mensajeria::conocido('whatsapp', $proveedor)) {
+                Respuesta::redirigir('/admin/autenticacion', 'Ese proveedor de WhatsApp no existe.', 'warn');
+            }
+            $nuevos['wa_proveedor'] = $proveedor;
+            $nuevos['wa_cuenta']    = mb_substr(trim($peticion->campo('wa_cuenta')), 0, 190);
+            $nuevos['wa_remitente'] = mb_substr(trim($peticion->campo('wa_remitente')), 0, 40);
+            $nuevos['wa_token']     = $tokenDe('wa');
+            if ($seccion === 'whatsapp') {
+                $resumen = 'Configuración de WhatsApp guardada.';
+            }
+        }
+
+        if ($seccion === 'todo' || $seccion === 'sms') {
+            $proveedor = $peticion->campo('sms_proveedor', 'twilio');
+            if (!\App\Nucleo\Mensajeria::conocido('sms', $proveedor)) {
+                Respuesta::redirigir('/admin/autenticacion', 'Ese proveedor de SMS no existe.', 'warn');
+            }
+            $nuevos['sms_proveedor'] = $proveedor;
+            $nuevos['sms_cuenta']    = mb_substr(trim($peticion->campo('sms_cuenta')), 0, 400);
+            $nuevos['sms_remitente'] = mb_substr(trim($peticion->campo('sms_remitente')), 0, 40);
+            $nuevos['sms_token']     = $tokenDe('sms');
+            if ($seccion === 'sms') {
+                $resumen = 'Configuración de SMS guardada.';
+            }
+        }
 
         if (!Config::escribir($nuevos + Config::todo())) {
             Respuesta::redirigir('/admin/autenticacion',
@@ -1105,13 +1444,7 @@ final class Admin
         }
         Config::establecerEnMemoria($nuevos);
 
-        Bitacora::registrar('autenticacion_configurada', 'sistema', null, [
-            'metodos'   => $validos,
-            'preferido' => $preferido,
-        ]);
-
-        Respuesta::redirigir('/admin/autenticacion',
-            'Métodos de acceso guardados: ' . implode(', ', $validos) . '.', 'ok');
+        Respuesta::redirigir('/admin/autenticacion', $resumen, 'ok');
     }
 
     /** Lo que la pantalla necesita, sin la contraseña. */

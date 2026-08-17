@@ -1,4 +1,8 @@
-/* Recorre los caminos reales de la plataforma —preregistro, carnet, check-in,
+/* HISTÓRICO. Este guion apunta a la maqueta estática que vivía en public/,
+   reemplazada por las vistas PHP. La prueba viva de los caminos reales es
+   pruebas/extremo-a-extremo.php, que habla con la plataforma por HTTP.
+
+   Recorre los caminos reales de la plataforma —preregistro, carnet, check-in,
    escáner del operador, identidad e instalador— y verifica que hagan lo que
    dicen. No basta con que la página cargue.
 
@@ -8,6 +12,16 @@
          npx http-server public -p 8899 -s
 */
 const { chromium } = require('playwright');
+const fs = require('fs');
+
+/* El navegador que trae el entorno puede no ser el que espera esta versión de
+   Playwright. Si hay uno instalado en /opt/pw-browsers se usa ese, en vez de
+   pedir una descarga que en un servidor sin salida a internet no va a ocurrir. */
+const EJECUTABLE = [
+  '/opt/pw-browsers/chromium/chrome-linux/chrome',
+  '/opt/pw-browsers/chromium-1194/chrome-linux/chrome',
+].find(r => { try { return fs.existsSync(r); } catch (e) { return false; } });
+const LANZAR = EJECUTABLE ? { executablePath: EJECUTABLE } : {};
 const B = 'http://127.0.0.1:8899';
 
 let ok = 0, mal = 0;
@@ -17,7 +31,7 @@ function check(nombre, condicion, extra) {
 }
 
 (async () => {
-  const browser = await chromium.launch();
+  const browser = await chromium.launch(LANZAR);
   const ctx = await browser.newContext({ viewport: { width: 1440, height: 950 } });
   const errores = [];
   ctx.on('page', p => {

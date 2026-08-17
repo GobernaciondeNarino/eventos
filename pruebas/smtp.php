@@ -783,8 +783,8 @@ comprobar('se leen los métodos guardados',
 comprobar('y el preferido', Autenticacion::preferido() === 'qr');
 
 Config::establecerEnMemoria(['auth_metodos' => []]);
-comprobar('sin ninguno, queda el correo: el evento no puede quedarse sin puerta',
-    Autenticacion::activos() === ['correo'], implode(',', Autenticacion::activos()));
+comprobar('sin ninguno quedan dos: el evento no puede quedarse sin puerta',
+    Autenticacion::activos() === ['correo', 'qr'], implode(',', Autenticacion::activos()));
 
 Config::establecerEnMemoria(['auth_metodos' => ['qr', 'inventado', 42]]);
 comprobar('los métodos que no existen se descartan',
@@ -794,9 +794,14 @@ Config::establecerEnMemoria(['auth_metodos' => ['qr'], 'auth_metodo_preferido' =
 comprobar('un preferido que no está activo cae al primero activo',
     Autenticacion::preferido() === 'qr');
 
+// Una configuración corrupta cae al valor de fábrica, que son dos puertas y no
+// una: correo y QR. Con solo correo, una instalación con el envío caído se
+// queda sin ninguna forma de entrar, que es el fallo que originó todo esto.
 Config::establecerEnMemoria(['auth_metodos' => 'no-es-un-arreglo']);
-comprobar('una configuración corrupta no rompe nada',
-    Autenticacion::activos() === ['correo']);
+comprobar('una configuración corrupta cae a correo y QR',
+    Autenticacion::activos() === ['correo', 'qr'],
+    implode(',', Autenticacion::activos()));
+
 
 Config::establecerEnMemoria(['auth_clave_minima' => 2]);
 comprobar('el mínimo de contraseña no baja de 6', Autenticacion::claveMinima() === 6);
