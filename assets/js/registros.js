@@ -24,10 +24,17 @@
 
   function pintar(html) {
     destino.innerHTML = html;
-    // El diálogo se acaba de llenar: el foco va al primer elemento útil, que
-    // es lo que espera quien navega con teclado o con lector de pantalla.
-    var primero = destino.querySelector('button, [href]');
-    if (primero) primero.focus();
+
+    // Arriba del todo, siempre. El foco no va al primer botón del contenido:
+    // en una ficha larga ese botón está a media pantalla de distancia y el
+    // navegador arrastra el diálogo hasta él, así que la ficha se abría
+    // enseñada por la mitad. Va al botón de cerrar, que está en la cabecera.
+    destino.scrollTop = 0;
+    var panel = dialogo.querySelector('.modal__panel');
+    if (panel) panel.scrollTop = 0;
+
+    var cerrar = dialogo.querySelector('[data-cerrar-modal]');
+    if (cerrar) cerrar.focus();
   }
 
   function traer(url, opciones) {

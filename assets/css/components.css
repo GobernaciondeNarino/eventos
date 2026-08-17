@@ -378,6 +378,9 @@
   display: flex; align-items: center; justify-content: space-between; gap: var(--sp-4);
   font-family: var(--f-mono); font-size: var(--fs-mono-xs);
   letter-spacing: .16em; text-transform: uppercase; color: var(--c-accent);
+  /* El panel es el que se desplaza; sin esto, en una ficha larga el botón de
+     cerrar se va hacia arriba y hay que volver a subir para encontrarlo. */
+  position: sticky; top: 0; z-index: 1; background: var(--c-surface);
 }
 .modal__close { cursor: pointer; border: 0; background: transparent; font-size: 20px; color: var(--c-muted); line-height: 1; padding: 0 4px; }
 .modal__body { padding: 24px; display: flex; flex-direction: column; gap: var(--sp-4); }
@@ -582,7 +585,24 @@
   font-family: var(--f-mono); font-size: 9.5px; letter-spacing: .18em;
   text-transform: uppercase; color: var(--c-muted);
 }
-.foto-campo input[type=file] { padding: 9px 11px; font-size: 13px; }
+/* El campo de archivo con el aspecto del resto de la plataforma. El botón que
+   pinta el navegador dentro del campo se puede vestir; el diálogo del sistema
+   sigue siendo el suyo, que es lo que hay que conservar. */
+input[type=file] {
+  padding: 8px 10px; font-size: 13px; line-height: 1.4; cursor: pointer;
+  color: var(--c-muted); font-family: var(--f-mono);
+}
+input[type=file]::file-selector-button {
+  margin-right: 12px; cursor: pointer;
+  padding: 8px 14px; border: 1px solid var(--a-28); border-radius: var(--radius);
+  background: var(--a-08); color: var(--c-text);
+  font-family: var(--f-display); font-size: 11px; font-weight: 600;
+  letter-spacing: .12em; text-transform: uppercase;
+  transition: background .15s ease, border-color .15s ease, color .15s ease;
+}
+input[type=file]::file-selector-button:hover {
+  border-color: var(--c-accent); color: var(--c-title); background: var(--a-12);
+}
 
 @media (max-width: 620px) {
   .foto-campo { grid-template-columns: 1fr; justify-items: center; }
