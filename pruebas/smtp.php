@@ -34,6 +34,7 @@ require RAIZ . '/app/ayudas.php';
 
 use App\Nucleo\Config;
 use App\Nucleo\Correo;
+use App\Nucleo\CorreoApi;
 use App\Nucleo\Smtp;
 
 Config::establecerEnMemoria(['llave_cifrado' => str_repeat('b', 64), 'depurar' => false]);
@@ -45,6 +46,12 @@ $fallos = [];
 function comprobar(string $nombre, bool $condicion, string $extra = ''): void
 {
     global $ok, $fallos;
+    // Si alguien usa $ok como variable local en el guion, el contador global se
+    // pisa y el resumen final dice «0 comprobaciones» aunque todas pasaran.
+    if (!is_int($ok)) {
+        fwrite(STDERR, "\nERROR EN LA PRUEBA: alguien sobreescribió \$ok, que es el contador.\n");
+        exit(2);
+    }
     if ($condicion) {
         $ok++;
         echo "  ✓ $nombre\n";
@@ -625,6 +632,137 @@ $t = $cliente->transcripcion();
 comprobar('no se intenta ninguna dirección entre corchetes',
     !str_contains($t, 'tcp://['), $t);
 $bajar($lanzado);
+
+/* =====================================================================
+   Envío por API sobre HTTPS
+   -------------------------------------------------------------------------
+   Es la salida cuando el cortafuegos rechaza el SMTP saliente del usuario de
+   PHP y no se puede tocar: el 443 no lo bloquea ninguna regla de correo. Cada
+   proveedor quiere la petición con una forma distinta, y eso es justo lo que se
+   comprueba aquí contra un servidor local que responde como ellos.
+   ===================================================================== */
+
+titulo('Envío por API');
+
+$levantarApi = static function (string $escenario) use ($puertoLibre): array {
+    $puerto = $puertoLibre();
+    $orden = escapeshellcmd(PHP_BINARY) . ' '
+        . escapeshellarg(RAIZ . '/pruebas/apoyo/servidor-api-correo.php')
+        . ' ' . $puerto . ' ' . escapeshellarg($escenario);
+    $tuberias = [];
+    $proceso = proc_open($orden, [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $tuberias);
+    stream_set_blocking($tuberias[1], false);
+    $limite = microtime(true) + 10;
+    $anuncio = '';
+    while (microtime(true) < $limite && !str_contains($anuncio, 'listo')) {
+        $anuncio .= (string) fread($tuberias[1], 64);
+        usleep(20000);
+    }
+    return [$proceso, $tuberias, $puerto];
+};
+
+$remitente = ['correo' => 'hosting@narino.gov.co', 'nombre' => 'Secretaría TIC'];
+$claveApi = 'clave-de-mentira-para-pruebas';
+
+foreach (['brevo' => 'ok-201', 'sendgrid' => 'ok-202', 'resend' => 'ok-201'] as $proveedor => $escenario) {
+    $lanzadoApi = $levantarApi($escenario);
+    [$procesoApi, $tuberiasApi, $puertoApi] = $lanzadoApi;
+
+    $api = new CorreoApi($proveedor, $claveApi, 8, 'http://127.0.0.1:' . $puertoApi . '/enviar');
+    $aceptado = $api->enviar($remitente, 'alguien@narino.gov.co', 'Asunto con ñ y tildes',
+        '<p>Hola</p>', 'Hola');
+
+    comprobar("$proveedor: acepta el envío", $aceptado, $api->error());
+
+    $recibido = (string) @file_get_contents(sys_get_temp_dir() . '/api-correo-' . $puertoApi . '.txt');
+    comprobar("$proveedor: la petición llegó", $recibido !== '');
+    comprobar("$proveedor: es un POST con JSON",
+        str_contains($recibido, 'POST ') && str_contains($recibido, 'application/json'), $recibido);
+
+    // Cada proveedor quiere la clave en una cabecera distinta.
+    $esperada = $proveedor === 'brevo' ? 'api-key: ' : 'Authorization: Bearer ';
+    comprobar("$proveedor: la clave va en «" . trim($esperada, ' :') . '»',
+        str_contains($recibido, $esperada . $claveApi), $recibido);
+
+    // Y el cuerpo con la forma que cada uno espera.
+    $campo = match ($proveedor) {
+        'brevo'    => '"htmlContent"',
+        'sendgrid' => '"personalizations"',
+        default    => '"html"',
+    };
+    comprobar("$proveedor: el cuerpo usa $campo", str_contains($recibido, $campo), $recibido);
+    comprobar("$proveedor: el asunto viaja con sus tildes",
+        str_contains($recibido, 'Asunto con ñ y tildes'), $recibido);
+    comprobar("$proveedor: la clave NO aparece en la transcripción",
+        !str_contains($api->transcripcion(), $claveApi), $api->transcripcion());
+    comprobar("$proveedor: y se anota que iba tachada",
+        str_contains($api->transcripcion(), '[clave tachada]'), $api->transcripcion());
+
+    @unlink(sys_get_temp_dir() . '/api-correo-' . $puertoApi . '.txt');
+    $bajar($lanzadoApi);
+}
+
+titulo('Lo que responde la API cuando algo falla');
+
+foreach ([
+    ['401', 'clave inválida', 'clave de API no es válida'],
+    ['400-from', 'remitente no autorizado', 'remitente no está autorizado'],
+    ['422', 'dominio sin verificar', 'no está verificado'],
+    ['429', 'cupo agotado', 'cupo del plan'],
+    ['500', 'fallo del proveedor', 'del proveedor'],
+] as [$escenario, $descripcion, $esperado]) {
+    $lanzadoApi = $levantarApi($escenario);
+    [$procesoApi, $tuberiasApi, $puertoApi] = $lanzadoApi;
+
+    $api = new CorreoApi('brevo', $claveApi, 8, 'http://127.0.0.1:' . $puertoApi . '/enviar');
+    $aceptado = $api->enviar($remitente, 'alguien@narino.gov.co', 'Prueba', '<p>x</p>', 'x');
+
+    comprobar("$descripcion: no se da por enviado", !$aceptado);
+    $pistas = implode(' ', CorreoApi::explicar($api->codigo(), $api->error(), 'brevo'));
+    comprobar("$descripcion: se explica qué hacer", str_contains($pistas, $esperado), $pistas);
+
+    @unlink(sys_get_temp_dir() . '/api-correo-' . $puertoApi . '.txt');
+    $bajar($lanzadoApi);
+}
+
+titulo('Casos que no llegan a salir');
+
+$api = new CorreoApi('un-proveedor-inventado', 'x', 5);
+comprobar('un proveedor desconocido se rechaza antes de conectar',
+    !$api->enviar($remitente, 'a@b.co', 'x', 'x', 'x'));
+comprobar('y se dice cuál era', str_contains($api->error(), 'un-proveedor-inventado'), $api->error());
+
+$api = new CorreoApi('brevo', '', 5);
+comprobar('sin clave no se intenta', !$api->enviar($remitente, 'a@b.co', 'x', 'x', 'x'));
+comprobar('y se dice que falta', str_contains($api->error(), 'clave'), $api->error());
+
+comprobar('los tres proveedores están declarados',
+    array_keys(CorreoApi::PROVEEDORES) === ['brevo', 'sendgrid', 'resend']);
+comprobar('cada uno con URL https',
+    !array_filter(CorreoApi::PROVEEDORES,
+        static fn(array $p): bool => !str_starts_with($p['url'], 'https://')));
+comprobar('CorreoApi::conocido reconoce los tres y rechaza otros',
+    CorreoApi::conocido('brevo') && CorreoApi::conocido('sendgrid')
+    && CorreoApi::conocido('resend') && !CorreoApi::conocido('otro'));
+
+titulo('Las órdenes para levantar el bloqueo del cortafuegos');
+
+$ordenes = Correo::ordenesDeCortafuegos();
+comprobar('se generan varios pasos', count($ordenes) >= 3, (string) count($ordenes));
+$todo = implode(' ', array_column($ordenes, 'orden'));
+comprobar('se busca la regla existente antes de tocar nada',
+    str_contains($todo, 'iptables-save | grep owner'), $todo);
+comprobar('se guarda una copia', str_contains($todo, 'reglas-antes-de-correo'), $todo);
+comprobar('la excepción va con --uid-owner y por encima del rechazo',
+    str_contains($todo, '-I OUTPUT 1') && str_contains($todo, '--uid-owner'), $todo);
+comprobar('cubre 587 y 465, no solo el 25',
+    str_contains($todo, '587,465') || str_contains($todo, '465,587'), $todo);
+$uidReal = function_exists('posix_geteuid') ? (string) posix_geteuid() : '';
+comprobar('lleva el UID de verdad de este proceso, no un hueco',
+    $uidReal === '' || str_contains($todo, '--uid-owner ' . $uidReal), $todo);
+$notas = implode(' ', array_column($ordenes, 'nota'));
+comprobar('y se menciona la alternativa de nftables', str_contains($notas, 'nft '), $notas);
+comprobar('y ConfigServer Firewall', str_contains($notas, 'SMTP_ALLOWUSER'), $notas);
 
 echo "\n" . str_repeat('─', 62) . "\n";
 printf("%d comprobaciones correctas · %d fallidas\n\n", $ok, count($fallos));

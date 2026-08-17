@@ -119,6 +119,10 @@ En `config/config.php`, junto al resto de la configuración:
 'smtp_espera'                => 15,
 'smtp_verificar_certificado' => true,
 'smtp_solo_ipv4'             => false,       // true = no intentar IPv6
+
+// Solo con modo_correo = 'api'
+'api_proveedor'              => 'brevo',     // 'brevo' | 'sendgrid' | 'resend'
+'api_clave'                  => '····················',
 ```
 
 Sobre cómo se guarda la contraseña, con honestidad: **queda en claro en ese archivo**, igual que
@@ -471,6 +475,53 @@ para el caso también es información útil.
 
 ---
 
+## 5.6 API por HTTPS: la salida que el cortafuegos no toca
+
+Si levantar la regla del cortafuegos se demora —una entidad pública puede tardar semanas en
+aprobar un cambio así—, hay una vía que no depende de nadie: **entregar por HTTPS al puerto
+443**, el mismo por el que este servidor sirve la web. Ninguna regla de correo lo bloquea.
+
+**Administración → Correo → Modo de envío → «API por HTTPS»**.
+
+| Proveedor | Capa gratuita | Clave en |
+|---|---|---|
+| **Brevo** | 300 correos al día | app.brevo.com → SMTP & API → API Keys |
+| **SendGrid** | 100 correos al día | app.sendgrid.com → Settings → API Keys |
+| **Resend** | 100 al día, 3.000 al mes | resend.com/api-keys |
+
+Los tres se hablan con un solo POST y una clave en una cabecera. Nada de OAuth, refresh tokens
+ni bibliotecas.
+
+> **Por qué no la API de Gmail.** También saldría por 443, pero exige un proyecto en Google
+> Cloud, client ID y secret, y un refresh token que caduca y hay que renovar. Mucho más aparato
+> para el mismo resultado, y con más piezas que se rompen solas. Si algún día la política lo
+> exige, se añade.
+
+### Lo que hay que hacer, y no es opcional
+
+**Verificar el dominio en el proveedor.** Ninguno de los tres deja enviar en nombre de un
+dominio ajeno: hay que publicar en el DNS de `narino.gov.co` los registros DKIM y de retorno que
+cada uno indique. Sin eso el envío se rechaza con `422`, o pasa y llega a no deseado.
+
+Es el mismo trabajo de DNS del apartado 6, con otro proveedor. La pantalla lo marca como aviso
+permanente mientras el modo esté activo.
+
+### Cuándo elegir qué
+
+| | SMTP a Google | API por HTTPS | Correo local |
+|---|---|---|---|
+| Necesita tocar el cortafuegos | **Sí** | No | No |
+| Cuenta con un tercero | No | **Sí** | No |
+| DNS que hay que publicar | Ya está (Google) | DKIM del proveedor | SPF/DKIM del subdominio |
+| Remitente institucional | `hosting@narino.gov.co` | el que se verifique | `…@tic.narino.gov.co` |
+| Cupo | 2.000/día | 100–300/día en gratis | el del servidor |
+| **Cuándo** | Es lo mejor: hazlo si se puede | Si el cortafuegos no se toca | Puente inmediato |
+
+El orden recomendado sigue siendo: **arreglar el cortafuegos** (dos líneas, apartado 5.4) →
+**correo local** como puente → **API** si lo primero se descarta por política.
+
+---
+
 ## 6. Que los mensajes lleguen a la bandeja de entrada
 
 Que el envío funcione no garantiza que el mensaje se lea. Esto se configura **en el DNS del
@@ -522,6 +573,7 @@ Cuando el cupo se agota, Google responde `550-5.4.5` y deja de aceptar hasta el 
 | Modo | Cuándo usarlo |
 |---|---|
 | **Servidor SMTP** | La opción preferible: el mensaje sale autenticado como la cuenta institucional. Necesita que el proveedor deje salir por el 587 o el 465. |
+| **API por HTTPS** | Brevo, SendGrid o Resend por el puerto 443, que ninguna regla de correo bloquea. Para cuando el cortafuegos no se puede tocar. Exige verificar el dominio en el proveedor (apartado 5.6). |
 | **Función mail()** | Cuando no hay salida SMTP. Entrega por el correo local, que en este servidor funciona. **Exige poner como remitente una dirección de un dominio que este Plesk gestione** (apartado 5.2); si no, el mensaje sale pero acaba en no deseado. |
 | **Solo registrar** | Pruebas y desarrollo. No envía nada: escribe los mensajes en `almacen/registro/`. Útil para probar el resto de la plataforma sin gastar cupo ni molestar a nadie. |
 
@@ -587,6 +639,9 @@ También comprueba que la contraseña no aparezca en la transcripción.
 | 2026-08-17 | **Aplicado:** el diagnóstico web informa del **usuario con el que corre PHP**, que es el dato que hace falta para levantar el bloqueo, y la explicación de «rechazado» remite a `nc` y a `SMTP_ALLOWUSER` de CSF. |
 | 2026-08-17 | **Verificado:** «Usar solo IPv4» funciona de punta a punta —11 comprobaciones—: con la casilla no se ofrece ninguna dirección IPv6, sin ella IPv6 queda detrás de IPv4, y el valor viaja de config.php al cliente. |
 | 2026-08-17 | **Pendiente del área de sistemas:** añadir el usuario del dominio a `SMTP_ALLOWUSER` en `/etc/csf/csf.conf` y `csf -r`. Es lo único que falta para que el SMTP a Google funcione desde la web. |
+| 2026-08-17 | **Aplicado:** el diagnóstico web genera las **órdenes de cortafuegos con el UID real** de este proceso, en el orden correcto —buscar la regla, guardar copia, insertar el ACCEPT por encima del REJECT, persistir— y con la alternativa de nftables y de CSF. Antes había que deducirlas. |
+| 2026-08-17 | **Aplicado:** modo **API por HTTPS** (`app/Nucleo/CorreoApi.php`) con Brevo, SendGrid y Resend. Sale por el 443, así que no le afecta la regla de SMTP. La clave se tacha en la transcripción y no vuelve al navegador. 38 comprobaciones contra un servidor local que responde como los tres proveedores. |
+| 2026-08-17 | **Revisada** la guía de PHPMailer que aportó la Secretaría. Confirma el diagnóstico —owner-match REJECT por UID, errno 111 ≠ DROP, root exento, y que la regla estándar de Plesk excluye `! -d 127.0.0.1`, que es lo que hace funcionar el correo local—. **No se adopta PHPMailer:** el cliente propio ya hace lo mismo (STARTTLS, SSL, AUTH LOGIN/PLAIN, punto doblado, MIME multiparte) y añadirlo no arreglaría nada, porque PHPMailer por SMTP choca con el mismo cortafuegos. Sí se adopta su recomendación de fondo: la API por 443. |
 
 > Cuando cambie algo —la cuenta, el proveedor, los límites— **actualizar esta tabla**. Una
 > configuración de correo sin historial es la que nadie se atreve a tocar dos años después.

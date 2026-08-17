@@ -3,7 +3,7 @@
  * Configuración de correo, con revisión y prueba.
  *
  * @var array $ajustes @var array $revision @var array|null $prueba @var array|null $red
- * @var string $sugerido
+ * @var array $proveedores @var string $sugerido
  */
 defined('EVENTOS_TIC') || exit;
 
@@ -246,6 +246,29 @@ $codigos = [
           </div>
         <?php endif; ?>
 
+        <?php if (!empty($red['cortafuegos'])): ?>
+          <div class="stack stack--2" style="padding-top:6px;border-top:1px solid var(--hair,var(--a-14))">
+            <strong style="font-size:13px">Levantar el bloqueo, si es lo que hay</strong>
+            <p class="help" style="margin:0">
+              Estas comprobaciones corrieron <strong>como el usuario de PHP</strong>, que es el que
+              importa: probar por SSH como <span class="mono">root</span> no vale, porque la regla
+              suele dejar salir a root y rechazar a los demás. Si aquí sale «rechazado» y por SSH
+              conecta, el bloqueo es por usuario. Las órdenes ya llevan el UID de este proceso.
+            </p>
+            <?php foreach ($red['cortafuegos'] as $n => $paso): ?>
+              <div class="stack stack--1">
+                <span class="help" style="margin:0;color:var(--c-accent)"><?= (int) $n + 1 ?>. <?= e($paso['titulo']) ?></span>
+                <pre class="sql-preview" style="white-space:pre-wrap;margin:0;font-size:11.5px"><?= e($paso['orden']) ?></pre>
+                <span class="help" style="margin:0"><?= e($paso['nota']) ?></span>
+              </div>
+            <?php endforeach; ?>
+            <p class="help" style="margin:0">
+              Si no se puede tocar el cortafuegos, el modo <strong>API por HTTPS</strong> sale por el
+              443 y no le afecta.
+            </p>
+          </div>
+        <?php endif; ?>
+
         <details>
           <summary style="cursor:pointer;font-size:13px;font-weight:600">Cómo está PHP en este servidor</summary>
           <pre class="sql-preview" style="white-space:pre-wrap;margin:8px 0 0;font-size:11.5px"><?php
@@ -302,8 +325,11 @@ $codigos = [
           <option value="smtp" <?= $modo === 'smtp' ? 'selected' : '' ?>>
             Servidor SMTP — recomendado para el correo institucional
           </option>
+          <option value="api" <?= $modo === 'api' ? 'selected' : '' ?>>
+            API por HTTPS — cuando el cortafuegos rechaza el SMTP saliente
+          </option>
           <option value="php" <?= $modo === 'php' ? 'selected' : '' ?>>
-            Función mail() del servidor — solo si el buzón está en este mismo Plesk
+            Función mail() del servidor — entrega por el correo local
           </option>
           <option value="registro" <?= $modo === 'registro' ? 'selected' : '' ?>>
             Solo registrar — no envía nada, deja los mensajes en almacen/registro/
@@ -423,6 +449,53 @@ $codigos = [
             </span>
           </div>
         </div>
+      </fieldset>
+
+      <fieldset style="border:1px solid var(--a-14);padding:16px;display:grid;gap:14px">
+        <legend class="kicker" style="padding:0 6px">API por HTTPS</legend>
+        <p class="help" style="margin:0">
+          Entrega por el puerto 443, el mismo por el que este servidor sirve la web. Una regla de
+          cortafuegos que cierre el SMTP saliente no le afecta, así que sirve cuando no se puede
+          tocar el cortafuegos. Hace falta una clave del proveedor y <strong>verificar el dominio
+          del remitente</strong> en su panel.
+        </p>
+
+        <div class="split" style="gap:14px">
+          <div class="field">
+            <label class="label" for="api-proveedor">Proveedor</label>
+            <select name="api_proveedor" id="api-proveedor" class="select">
+              <?php foreach ($proveedores as $clave => $p): ?>
+                <option value="<?= e($clave) ?>" <?= $ajustes['apiProveedor'] === $clave ? 'selected' : '' ?>>
+                  <?= e($p['nombre']) ?> — <?= e($p['gratis']) ?>
+                </option>
+              <?php endforeach; ?>
+            </select>
+            <span class="help">
+              Clave en:
+              <?php foreach ($proveedores as $clave => $p): ?>
+                <span class="mono" style="font-size:11px"><?= e($p['panel']) ?></span><?= $clave === array_key_last($proveedores) ? '' : ' · ' ?>
+              <?php endforeach; ?>
+            </span>
+          </div>
+          <div class="field">
+            <label class="label" for="api-clave">
+              Clave de API
+              <?php if ($ajustes['hayClaveApi']): ?>
+                <span class="mono" style="font-size:10px;color:var(--c-muted)">· hay una guardada</span>
+              <?php endif; ?>
+            </label>
+            <input type="password" name="api_clave" id="api-clave" class="input" autocomplete="new-password"
+                   placeholder="<?= $ajustes['hayClaveApi'] ? '••••••••  (déjalo vacío para no cambiarla)' : 'xkeysib-… / SG.… / re_…' ?>">
+            <span class="help">Dale permiso de envío, no solo de lectura.</span>
+          </div>
+        </div>
+
+        <?php if ($ajustes['hayClaveApi']): ?>
+          <label class="row" style="gap:8px;cursor:pointer">
+            <input type="checkbox" name="borrar_clave_api" value="1" style="width:16px;height:16px;accent-color:var(--c-accent)">
+            <span class="help">Borrar la clave de API guardada</span>
+          </label>
+        <?php endif; ?>
       </fieldset>
 
       <div class="row" style="gap:10px">

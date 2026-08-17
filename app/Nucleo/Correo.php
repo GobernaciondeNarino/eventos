@@ -8,10 +8,14 @@ defined('EVENTOS_TIC') || exit;
 /**
  * Envío de correo.
  *
- * Tres modos, según lo que haya en config:
+ * Cuatro modos, según lo que haya en config:
  *   'smtp'     → se habla SMTP con un servidor de verdad. Es lo que hay que
  *                usar cuando el correo del dominio está en Google Workspace o
  *                en Microsoft 365, que es el caso de narino.gov.co.
+ *   'api'      → se entrega por HTTPS al 443 a Brevo, SendGrid o Resend. Es la
+ *                salida cuando hay una regla de cortafuegos que rechaza el SMTP
+ *                saliente del usuario de PHP y no se puede tocar: el 443 es el
+ *                mismo puerto por el que el servidor sirve la web.
  *   'php'      → la función mail() del servidor. Entrega al servidor de correo
  *                local; sirve cuando el dominio tiene su buzón en el mismo
  *                Plesk, y no sirve cuando el dominio está en Google: los
@@ -99,6 +103,35 @@ final class Correo
                 'texto'  => mb_substr($cuerpoTexto, 0, 500),
             ]);
             return true;
+        }
+
+        if ($modo === 'api') {
+            // El proveedor arma el MIME por su cuenta: se le pasan las piezas.
+            $cliente = new CorreoApi(
+                (string) Config::obtener('api_proveedor', 'brevo'),
+                (string) Config::obtener('api_clave', ''),
+                (int) Config::obtener('smtp_espera', 15)
+            );
+            $enviado = $cliente->enviar(
+                ['correo' => $remitente, 'nombre' => $nombreRemitente],
+                $destinatario,
+                $asunto,
+                $cuerpoHtml,
+                $cuerpoTexto
+            );
+
+            self::$ultimaTranscripcion = $cliente->transcripcion();
+            if (!$enviado) {
+                self::$ultimoError = $cliente->error();
+                Registro::error('API de correo falló', [
+                    'para'      => $destinatario,
+                    'asunto'    => $asunto,
+                    'proveedor' => Config::obtener('api_proveedor', 'brevo'),
+                    'codigo'    => $cliente->codigo(),
+                    'detalle'   => $cliente->error(),
+                ]);
+            }
+            return $enviado;
         }
 
         if ($modo === 'smtp') {
@@ -305,14 +338,79 @@ final class Correo
             'disable_functions'  => (string) (ini_get('disable_functions') ?: '(ninguna)'),
         ];
 
+        $rechazado = array_filter(
+            $intentos,
+            static fn(array $i): bool => !$i['ok'] && str_contains(mb_strtolower($i['error']), 'refused')
+        );
+
         return [
             'host'       => $host,
             'ipv4'       => $ipv4,
             'ipv6'       => $ipv6,
             'intentos'   => $intentos,
+            // Las órdenes para levantar el bloqueo, con el UID ya puesto. Solo
+            // cuando hace falta: si la salida funciona, esto sobra.
+            'cortafuegos' => $rechazado !== [] ? self::ordenesDeCortafuegos() : [],
             'relayLocal' => $relayLocal,
             'local'      => $local,
             'resumen'    => self::resumirRed($intentos, $ipv4, $ipv6, $relayLocal),
+        ];
+    }
+
+    /**
+     * Las órdenes para levantar un bloqueo de SMTP por usuario.
+     *
+     * Se generan con el UID de verdad de este proceso, que es el dato que hay
+     * que buscar a mano y el que se equivoca. La regla estándar de Plesk cubre
+     * solo el puerto 25; si el rechazo aparece en 587 y 465, la regla está
+     * ampliada —Imunify360 lo hace— y la excepción tiene que cubrir esos.
+     *
+     * No se ejecuta nada desde aquí, ni podría: PHP no tiene permiso para tocar
+     * el cortafuegos, y menos aún debería tenerlo. Esto es texto para copiar en
+     * una consola de root.
+     *
+     * @return array<int, array{titulo: string, orden: string, nota: string}>
+     */
+    public static function ordenesDeCortafuegos(): array
+    {
+        $uid = function_exists('posix_geteuid') ? posix_geteuid() : null;
+        $nombre = ($uid !== null && function_exists('posix_getpwuid'))
+            ? (posix_getpwuid($uid)['name'] ?? '')
+            : (string) get_current_user();
+
+        $quien = $uid !== null ? (string) $uid : ($nombre !== '' ? $nombre : '<UID>');
+
+        return [
+            [
+                'titulo' => 'Ver si existe la regla que rechaza',
+                'orden'  => 'iptables-save | grep owner' . PHP_EOL
+                    . 'nft list ruleset | grep -i skuid',
+                'nota'   => 'Busca «--uid-owner» o «skuid» junto a los puertos 25, 465 o 587 y un '
+                    . 'REJECT. Es la regla anti-spam de Plesk, ampliada a esos puertos.',
+            ],
+            [
+                'titulo' => 'Guardar una copia antes de tocar nada',
+                'orden'  => 'iptables-save > /root/reglas-antes-de-correo.txt',
+                'nota'   => 'Editar el cortafuegos en producción puede cortar servicios.',
+            ],
+            [
+                'titulo' => 'Permitir la salida a este usuario, por encima del rechazo',
+                'orden'  => 'iptables -I OUTPUT 1 -m owner --uid-owner ' . $quien
+                    . ' -p tcp -m multiport --dports 587,465 -j ACCEPT',
+                'nota'   => 'El UID ' . $quien
+                    . ($nombre !== '' ? ' (' . $nombre . ')' : '')
+                    . ' es el de este proceso de PHP, el que la aplicación usa de verdad. '
+                    . 'Con nftables: nft insert rule inet filter output meta skuid ' . $quien
+                    . ' tcp dport { 587, 465 } counter accept',
+            ],
+            [
+                'titulo' => 'Dejarlo puesto para el próximo reinicio',
+                'orden'  => 'service iptables save   # RHEL/AlmaLinux' . PHP_EOL
+                    . 'netfilter-persistent save   # Debian/Ubuntu',
+                'nota'   => 'Si el cortafuegos lo gestiona ConfigServer Firewall, no se edita a '
+                    . 'mano: se añade el usuario a SMTP_ALLOWUSER en /etc/csf/csf.conf y se '
+                    . 'recarga con «csf -r».',
+            ],
         ];
     }
 
@@ -498,6 +596,9 @@ final class Correo
         if ($modo === 'smtp') {
             return (string) Config::obtener('smtp_host', '') !== '';
         }
+        if ($modo === 'api') {
+            return (string) Config::obtener('api_clave', '') !== '';
+        }
         return function_exists('mail');
     }
 
@@ -562,6 +663,37 @@ final class Correo
                     . 'no-responder@' . $dominioServidor . '— y crear ese buzón en Plesk → Correo, '
                     . 'que así el mensaje sale con SPF y DKIM válidos.');
             }
+        } elseif ($modo === 'api') {
+            $proveedor = (string) Config::obtener('api_proveedor', 'brevo');
+            $clave = (string) Config::obtener('api_clave', '');
+
+            if (!CorreoApi::conocido($proveedor)) {
+                $anotar('fail', 'Proveedor de API desconocido',
+                    'Está configurado «' . $proveedor . '», que no es ninguno de los que la '
+                    . 'plataforma sabe hablar.',
+                    'Elige Brevo, SendGrid o Resend.');
+            } else {
+                $anotar('ok', 'Envío por la API de ' . CorreoApi::PROVEEDORES[$proveedor]['nombre'],
+                    'Se entrega por HTTPS al puerto 443, el mismo por el que este servidor sirve la '
+                    . 'web. Una regla de cortafuegos que cierre el SMTP saliente no le afecta.');
+            }
+            if ($clave === '') {
+                $anotar('fail', 'Falta la clave de API',
+                    'Sin ella el proveedor rechaza la petición con 401.',
+                    'Genera una en ' . (CorreoApi::PROVEEDORES[$proveedor]['panel'] ?? 'el panel del proveedor')
+                    . ' con permiso de envío.');
+            }
+            if (!function_exists('curl_init') && !ini_get('allow_url_fopen')) {
+                $anotar('fail', 'Este PHP no puede hacer peticiones HTTPS',
+                    'No tiene cURL y allow_url_fopen está apagado.',
+                    'Activa una de las dos en Plesk → Configuración de PHP.');
+            }
+            $anotar('warn', 'El dominio del remitente tiene que estar verificado en el proveedor',
+                'Estos servicios no dejan enviar en nombre de un dominio ajeno: hay que publicar '
+                . 'los registros DKIM y de retorno que dan. Sin eso, el envío se rechaza o llega a '
+                . 'no deseado.',
+                'Verifica narino.gov.co en '
+                . (CorreoApi::PROVEEDORES[$proveedor]['panel'] ?? 'el panel del proveedor') . '.');
         } else {
             $anotar('ok', 'Envío por servidor SMTP',
                 'Los mensajes salen autenticados como la cuenta institucional, que es lo que hace '
@@ -592,6 +724,7 @@ final class Correo
         if ($modo !== 'smtp') {
             return $lista;
         }
+
 
         /* ---- Los datos del SMTP ---- */
 
@@ -721,6 +854,26 @@ final class Correo
                     'Revisa que el dominio tenga buzón en este mismo servidor (Plesk → Correo).',
                     'Si el buzón está en Google o Microsoft, mail() no es el camino: usa SMTP.',
                 ],
+            ];
+        }
+
+        if ($modo === 'api') {
+            if ($destinatario === '') {
+                return ['resumen' => 'Con la API no hay conexión que probar por separado: escribe '
+                    . 'una dirección y se manda un mensaje de verdad.'] + $vacio;
+            }
+            $ok = self::mensajeDePrueba($destinatario);
+            $proveedor = (string) Config::obtener('api_proveedor', 'brevo');
+            return [
+                'ok' => $ok,
+                'resumen' => $ok
+                    ? 'El proveedor aceptó el mensaje. Revisa ' . $destinatario
+                        . ' —también no deseado— en el próximo minuto.'
+                    : 'El proveedor rechazó el mensaje.',
+                'error' => self::$ultimoError,
+                'codigo' => '',
+                'transcripcion' => self::$ultimaTranscripcion,
+                'pistas' => $ok ? [] : CorreoApi::explicar('', self::$ultimoError, $proveedor),
             ];
         }
 

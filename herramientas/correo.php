@@ -40,6 +40,9 @@
  *   --espera=15      segundos
  *   --guardar        si la prueba sale bien, escribe estos datos en config.php
  *
+ * Con modo_correo = 'api' en config.php, «enviar --a=…» usa la API del
+ * proveedor (Brevo, SendGrid o Resend) por HTTPS 443 en vez de SMTP.
+ *
  * La contraseña nunca se imprime ni se registra: en la transcripción sale como
  * «[contraseña en base64]». Aun así, pasarla por la línea de órdenes la deja en
  * el historial del intérprete: conviene borrarlo después (history -c) o usar
@@ -227,6 +230,42 @@ if ($orden === 'estado') {
 
 if (!in_array($orden, ['probar', 'enviar'], true)) {
     $mal('Orden desconocida: «' . $orden . '». Usa estado, probar o enviar.');
+    exit(1);
+}
+
+// Modo API: no hay conexión que probar por separado, se manda y se ve qué dice.
+if ((string) Config::obtener('modo_correo', 'php') === 'api' && !isset($opciones['host'])) {
+    $para = (string) ($opciones['a'] ?? '');
+    if (!filter_var($para, FILTER_VALIDATE_EMAIL)) {
+        $mal('En modo API hace falta --a=una@direccion.valida: la única forma de probar es enviar.');
+        exit(1);
+    }
+    $proveedor = (string) Config::obtener('api_proveedor', 'brevo');
+    $paso('Enviando por la API de ' . (\App\Nucleo\CorreoApi::PROVEEDORES[$proveedor]['nombre'] ?? $proveedor));
+
+    $enviado = Correo::enviar($para, 'Prueba desde la consola ' . date('Y-m-d H:i:s'),
+        '<p>Si lees esto, la plataforma puede enviar por la API del proveedor.</p>');
+
+    $linea();
+    $linea($color('Conversación con el proveedor', 'fuerte'));
+    foreach (explode("\n", Correo::ultimaTranscripcion()) as $l) {
+        $linea('  ' . $l);
+    }
+    $linea();
+
+    if ($enviado) {
+        $bien('Aceptado. Revisa ' . $para . ', también en no deseado.');
+        $linea();
+        exit(0);
+    }
+    $mal('Falló.');
+    $linea('    ' . wordwrap(Correo::ultimoError(), 74, PHP_EOL . '    '));
+    $linea();
+    $linea($color('Qué hacer', 'fuerte'));
+    foreach (\App\Nucleo\CorreoApi::explicar('', Correo::ultimoError(), $proveedor) as $pista) {
+        $linea('  · ' . wordwrap($pista, 74, PHP_EOL . '    '));
+    }
+    $linea();
     exit(1);
 }
 

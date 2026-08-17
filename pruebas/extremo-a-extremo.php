@@ -1153,6 +1153,37 @@ comprobar('sin cifrado, que es lo que habla el relé local',
     ($guardado['smtp_seguridad'] ?? '') === 'ninguna');
 comprobar('y sin credenciales: el relé local no las pide',
     ($guardado['smtp_usuario'] ?? 'x') === '' && ($guardado['smtp_clave'] ?? 'x') === '');
+/* Modo API: la salida por HTTPS 443 cuando el cortafuegos rechaza el SMTP. */
+$admin->post('/admin/correo', [
+    'modo_correo'      => 'api',
+    'correo_remitente' => 'hosting@narino.gov.co',
+    'correo_nombre'    => 'Secretaría TIC',
+    'api_proveedor'    => 'resend',
+    'api_clave'        => 'clave-de-prueba-para-la-api',
+    'smtp_puerto'      => '587',
+    'smtp_seguridad'   => 'tls',
+    'smtp_espera'      => '15',
+]);
+$guardado = leerConfig($RAIZ);
+comprobar('se guarda el modo API', ($guardado['modo_correo'] ?? '') === 'api');
+comprobar('con el proveedor elegido', ($guardado['api_proveedor'] ?? '') === 'resend');
+comprobar('y su clave', ($guardado['api_clave'] ?? '') === 'clave-de-prueba-para-la-api');
+
+$html = $admin->get('/admin/correo');
+comprobar('la clave de API tampoco vuelve al navegador',
+    !str_contains($html, 'clave-de-prueba-para-la-api'));
+comprobar('pero se avisa de que hay una guardada',
+    substr_count($html, 'hay una guardada') >= 1);
+comprobar('y la revisión recuerda verificar el dominio en el proveedor',
+    str_contains($html, 'verificado en el proveedor'));
+
+$admin->post('/admin/correo', [
+    'modo_correo' => 'api', 'correo_remitente' => 'hosting@narino.gov.co',
+    'api_proveedor' => 'un-proveedor-inventado', 'smtp_puerto' => '587', 'smtp_seguridad' => 'tls',
+], false);
+comprobar('un proveedor de API inventado se rechaza',
+    (leerConfig($RAIZ)['api_proveedor'] ?? '') === 'resend');
+
 comprobar('un puerto inventado cae al 25',
     (static function () use ($admin, $RAIZ): bool {
         $admin->post('/admin/correo/local', ['puerto' => '9999']);

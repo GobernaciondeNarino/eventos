@@ -823,6 +823,7 @@ final class Admin
             'revision'  => Correo::revision(),
             'prueba'    => Sesion::datos('admin')['prueba_correo'] ?? null,
             'red'       => Sesion::datos('admin')['red_correo'] ?? null,
+            'proveedores' => \App\Nucleo\CorreoApi::PROVEEDORES,
             'sugerido'  => (string) (Guardia::usuarioActual()['correo'] ?? ''),
         ]);
 
@@ -833,7 +834,7 @@ final class Admin
     public function guardarCorreo(Peticion $peticion): void
     {
         $modo = $peticion->campo('modo_correo', 'php');
-        if (!in_array($modo, ['smtp', 'php', 'registro'], true)) {
+        if (!in_array($modo, ['smtp', 'api', 'php', 'registro'], true)) {
             Respuesta::redirigir('/admin/correo', 'Ese modo de envío no existe.', 'warn');
         }
 
@@ -866,8 +867,23 @@ final class Admin
             $clave = (string) preg_replace('/\s+/', '', $clave);
         }
 
+        $proveedor = $peticion->campo('api_proveedor', 'brevo');
+        if (!\App\Nucleo\CorreoApi::conocido($proveedor)) {
+            Respuesta::redirigir('/admin/correo', 'Ese proveedor de API no existe.', 'warn');
+        }
+
+        // Igual que la del SMTP: vacío significa «déjala como está».
+        $claveApi = trim($peticion->campoCrudo('api_clave'));
+        if ($claveApi === '') {
+            $claveApi = $peticion->marcado('borrar_clave_api')
+                ? ''
+                : (string) Config::obtener('api_clave', '');
+        }
+
         $nuevos = [
             'modo_correo'                => $modo,
+            'api_proveedor'              => $proveedor,
+            'api_clave'                  => $claveApi,
             'correo_remitente'           => $remitente,
             'correo_nombre'              => mb_substr(trim($peticion->campo('correo_nombre')), 0, 120),
             'smtp_host'                  => mb_substr(trim($peticion->campo('smtp_host')), 0, 190),
@@ -893,7 +909,9 @@ final class Admin
             'puerto'      => $puerto,
             'seguridad'   => $seguridad,
             'usuario'     => $nuevos['smtp_usuario'],
-            'clave_nueva' => trim($peticion->campoCrudo('smtp_clave')) !== '',
+            'proveedor'   => $proveedor,
+            'clave_nueva' => trim($peticion->campoCrudo('smtp_clave')) !== ''
+                || trim($peticion->campoCrudo('api_clave')) !== '',
         ]);
 
         Respuesta::redirigir('/admin/correo', 'Configuración de correo guardada.', 'ok');
@@ -1022,6 +1040,8 @@ final class Admin
             'usuario'      => (string) Config::obtener('smtp_usuario', ''),
             // Solo si hay contraseña guardada, nunca cuál.
             'hayClave'     => (string) Config::obtener('smtp_clave', '') !== '',
+            'apiProveedor' => (string) Config::obtener('api_proveedor', 'brevo'),
+            'hayClaveApi'  => (string) Config::obtener('api_clave', '') !== '',
             'espera'       => (int) Config::obtener('smtp_espera', 15),
             'verificar'    => (bool) Config::obtener('smtp_verificar_certificado', true),
             'soloIpv4'     => (bool) Config::obtener('smtp_solo_ipv4', false),
