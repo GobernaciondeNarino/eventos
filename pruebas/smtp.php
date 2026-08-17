@@ -401,6 +401,21 @@ comprobar('y se recuerda que mail() local es la salida de emergencia',
 comprobar('«No route to host» se trata igual',
     str_contains(implode(' ', Correo::explicar('', 'No route to host')), 'IPv6'));
 
+// Las pistas se pintan tal cual, en HTML y en la consola: los asteriscos de
+// markdown salen literales y quedan feos en las dos.
+$conAsteriscos = [];
+foreach ([['535', 'Username and Password not accepted'], ['534', '5.7.9'], ['550', '5.7.1'],
+          ['', 'Connection refused'], ['', 'Network is unreachable'], ['421', '4.7.0'],
+          ['550', '5.4.5'], ['', 'lo que sea']] as [$c, $m]) {
+    foreach (Correo::explicar($c, $m) as $pista) {
+        if (str_contains($pista, '**')) {
+            $conAsteriscos[] = mb_substr($pista, 0, 60);
+        }
+    }
+}
+comprobar('ninguna explicación lleva asteriscos de markdown',
+    $conAsteriscos === [], implode(' | ', $conAsteriscos));
+
 /* =====================================================================
    Diagnóstico de red
    ===================================================================== */
@@ -523,6 +538,93 @@ comprobar('explicando que no es tráfico saliente',
     str_contains($conLocal, 'no es tráfico saliente'), $conLocal);
 comprobar('y recordando lo del dominio del remitente',
     str_contains($conLocal, 'remitente'), $conLocal);
+
+/* =====================================================================
+   «Usar solo IPv4»
+   -------------------------------------------------------------------------
+   La casilla existe para servidores cuyo DNS devuelve dirección IPv6 sin que
+   haya ruta de salida por ahí. Se comprueba lo que de verdad importa: que con
+   ella marcada NO se intente IPv6, y que sin ella IPv6 quede detrás de IPv4 y
+   no delante.
+   ===================================================================== */
+
+titulo('La casilla «Usar solo IPv4»');
+
+$direccionesDe = static function (Smtp $cliente): array {
+    $m = new ReflectionMethod(Smtp::class, 'direcciones');
+    $m->setAccessible(true);
+    return $m->invoke($cliente);
+};
+
+// smtp.gmail.com publica A y AAAA; es el caso que motivó todo esto.
+$conIpv6 = new Smtp('smtp.gmail.com', 587, 'tls', '', '', 5, true, false);
+$soloV4  = new Smtp('smtp.gmail.com', 587, 'tls', '', '', 5, true, true);
+
+$listaMixta = $direccionesDe($conIpv6);
+$listaV4    = $direccionesDe($soloV4);
+
+$esV6 = static fn(string $d): bool => str_contains($d, ':');
+$esV4 = static fn(string $d): bool => filter_var($d, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4) !== false;
+
+if ($listaMixta === ['smtp.gmail.com']) {
+    // Sin DNS en el entorno de pruebas no se puede comprobar esta parte.
+    comprobar('el DNS no resuelve aquí; se omite la comprobación de familias', true);
+} else {
+    comprobar('sin la casilla, se ofrecen direcciones IPv6',
+        array_filter($listaMixta, $esV6) !== [], implode(', ', $listaMixta));
+    comprobar('pero IPv4 va primero',
+        $esV4($listaMixta[0] ?? ''), implode(', ', $listaMixta));
+
+    comprobar('con la casilla marcada, NO hay ninguna IPv6',
+        array_filter($listaV4, $esV6) === [], implode(', ', $listaV4));
+    comprobar('y sigue habiendo IPv4 que probar',
+        array_filter($listaV4, $esV4) !== [], implode(', ', $listaV4));
+    comprobar('la lista se acorta, no se vacía',
+        count($listaV4) >= 1 && count($listaV4) <= count($listaMixta),
+        count($listaV4) . ' de ' . count($listaMixta));
+}
+
+// Una dirección literal no se resuelve ni se filtra: se usa tal cual.
+$literalV4 = new Smtp('192.0.2.1', 587, 'tls', '', '', 5, true, true);
+comprobar('una IPv4 literal pasa tal cual', $direccionesDe($literalV4) === ['192.0.2.1']);
+
+$literalV6 = new Smtp('2001:db8::1', 587, 'tls', '', '', 5, true, true);
+comprobar('una IPv6 literal se respeta aunque esté marcada la casilla',
+    $direccionesDe($literalV6) === ['2001:db8::1'],
+    'si alguien la escribe a mano, es a propósito');
+
+// Y que la casilla llegue de verdad desde la configuración hasta el cliente.
+titulo('La casilla llega desde la configuración hasta el cliente');
+
+$clienteDe = static function (): Smtp {
+    $m = new ReflectionMethod(Correo::class, 'cliente');
+    $m->setAccessible(true);
+    return $m->invoke(null);
+};
+$leerCampo = static function (Smtp $c, string $nombre) {
+    $p = new ReflectionProperty(Smtp::class, $nombre);
+    $p->setAccessible(true);
+    return $p->getValue($c);
+};
+
+Config::establecerEnMemoria(['smtp_solo_ipv4' => true, 'smtp_host' => 'smtp.gmail.com']);
+comprobar('con smtp_solo_ipv4 = true, el cliente lo recibe',
+    $leerCampo($clienteDe(), 'soloIpv4') === true);
+
+Config::establecerEnMemoria(['smtp_solo_ipv4' => false]);
+comprobar('y con false, también', $leerCampo($clienteDe(), 'soloIpv4') === false);
+
+// Con la casilla puesta, la transcripción no debe mencionar ninguna IPv6.
+titulo('Marcada, no aparece IPv6 en la transcripción');
+
+$lanzado = $levantar('sin-starttls');
+[$proceso, $tuberias, $puerto] = $lanzado;
+$cliente = new Smtp('localhost', $puerto, 'ninguna', '', '', 5, false, true);
+$cliente->comprobar();
+$t = $cliente->transcripcion();
+comprobar('no se intenta ninguna dirección entre corchetes',
+    !str_contains($t, 'tcp://['), $t);
+$bajar($lanzado);
 
 echo "\n" . str_repeat('─', 62) . "\n";
 printf("%d comprobaciones correctas · %d fallidas\n\n", $ok, count($fallos));

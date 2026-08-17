@@ -290,7 +290,14 @@ final class Correo
             ];
         }
 
+        $usuarioPhp = function_exists('posix_geteuid')
+            ? ((posix_getpwuid(posix_geteuid())['name'] ?? '?') . ' (uid ' . posix_geteuid() . ')')
+            : (string) (get_current_user() ?: 'desconocido');
+
         $local = [
+            // Es el dato que hace falta para levantar un bloqueo por usuario:
+            // sin saber con qué cuenta corre PHP no hay a quién darle permiso.
+            'usuario de PHP'     => $usuarioPhp,
             'mail()'             => function_exists('mail') ? 'disponible' : 'desactivada',
             'sendmail_path'      => (string) (ini_get('sendmail_path') ?: '(sin definir)'),
             'openssl'            => extension_loaded('openssl') ? 'presente' : 'ausente',
@@ -316,7 +323,7 @@ final class Correo
         $sugerenciaLocal = '';
         if ($localOk !== []) {
             $puerto = (int) $localOk[0]['puerto'];
-            $sugerenciaLocal = ' **Hay servidor de correo en esta misma máquina**, escuchando en '
+            $sugerenciaLocal = ' Hay servidor de correo en esta misma máquina, escuchando en '
                 . '127.0.0.1:' . $puerto . '. Conectarse ahí no es tráfico saliente, así que el '
                 . 'bloqueo no le aplica: es por donde salen los mensajes de WordPress en este '
                 . 'servidor. Pon servidor «localhost», puerto ' . $puerto . ', seguridad «sin '
@@ -386,11 +393,13 @@ final class Correo
         }
 
         if ($tiene($v4, 'refused')) {
-            return 'La salida SMTP está bloqueada a propósito: los tres puertos responden «rechazado» '
-                . 'al instante, y eso no lo hace una red sin ruta —esa da «unreachable»— ni un puerto '
-                . 'filtrado —ese se queda esperando—. Lo hace un cortafuegos con regla de rechazo, en '
-                . 'el propio servidor o en el proveedor. Es lo normal en alojamiento compartido: se '
-                . 'cierra la salida SMTP para que nadie use el servidor como relé de spam.' . $comun;
+            return 'La salida SMTP está bloqueada a propósito: los puertos responden «rechazado» al '
+                . 'instante, y eso no lo hace una red sin ruta —esa da «unreachable»— ni un puerto '
+                . 'filtrado —ese se queda esperando—. Lo hace un cortafuegos con regla de rechazo. '
+                . 'Compruébalo desde una consola con «nc -zv smtp.gmail.com 587»: si desde ahí SÍ '
+                . 'conecta, el bloqueo es por usuario y no de la máquina, y lo que hay que hacer es '
+                . 'permitirle la salida al usuario con el que corre PHP —el que aparece abajo, en '
+                . '«Cómo está PHP en este servidor»—.' . $comun;
         }
 
         if ($tiene($intentos, 'unreachable', 'no route')) {
@@ -829,8 +838,8 @@ final class Correo
 
         // --- Códigos de autenticación ---
         if ($codigo === '535' || $contiene('username and password not accepted', '5.7.8')) {
-            $pistas[] = 'Usuario o contraseña rechazados (535-5.7.8). En Google **no sirve la '
-                . 'contraseña normal de la cuenta**: hay que generar una contraseña de aplicación '
+            $pistas[] = 'Usuario o contraseña rechazados (535-5.7.8). En Google no sirve la '
+                . 'contraseña normal de la cuenta: hay que generar una contraseña de aplicación '
                 . 'de 16 letras en Cuenta de Google → Seguridad → Verificación en dos pasos → '
                 . 'Contraseñas de aplicación.';
             $pistas[] = 'El usuario tiene que ser la dirección completa, con dominio: '

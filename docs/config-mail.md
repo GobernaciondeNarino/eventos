@@ -352,6 +352,125 @@ plataforma todavía no los habla; si hiciera falta, se añade como un modo más.
 
 ---
 
+## 5.4 El bloqueo es por usuario, no de la máquina
+
+Este es el diagnóstico final, y cambia por completo lo que hay que hacer.
+
+### La prueba que lo demuestra
+
+Desde SSH como **root**, en ese mismo servidor:
+
+```
+root@agitated-taussig:~# nc -zv smtp.gmail.com 587
+Ncat: Connected to 74.125.197.109:587.
+
+root@agitated-taussig:~# nc -zv smtp.gmail.com 465
+Ncat: Connected to 74.125.197.109:465.
+```
+
+**Conecta.** La máquina sí puede salir a smtp.gmail.com. Y sin embargo PHP, desde la misma
+máquina y al mismo destino, recibe `Connection refused` al instante en los tres puertos.
+
+Solo hay una explicación: **el bloqueo está puesto por usuario**. Root queda exento; el usuario
+con el que corre PHP-FPM para el dominio, no.
+
+### Quién lo pone
+
+En un Plesk, casi siempre una de estas dos cosas:
+
+**ConfigServer Firewall (CSF)** — es lo más frecuente. Trae una opción `SMTP_BLOCK` que cierra
+la salida a los puertos de correo para todos los usuarios salvo los de una lista:
+
+```bash
+grep -E "^SMTP_BLOCK|^SMTP_ALLOWUSER|^SMTP_PORTS" /etc/csf/csf.conf
+```
+
+Si sale `SMTP_BLOCK = "1"`, esa es la causa. Se añade el usuario del dominio a la lista y se
+recarga:
+
+```bash
+# /etc/csf/csf.conf
+SMTP_ALLOWUSER = "root,mailnull,mail,postfix,<usuario-del-dominio>"
+
+csf -r
+```
+
+**Una regla de iptables con el módulo `owner`**, que hace lo mismo a mano:
+
+```bash
+iptables -L OUTPUT -n -v --line-numbers | grep -E "25|465|587"
+```
+
+Y el interruptor propio de Plesk, por si acaso:
+
+```bash
+plesk bin server_pref --show-outgoing-messages
+```
+
+### Qué usuario hay que autorizar
+
+El que aparece en **Administración → Correo → Probar la salida de red → Cómo está PHP en este
+servidor**, campo **«usuario de PHP»**. También:
+
+```bash
+ps -o user,cmd -C php-fpm | head
+```
+
+> **Ese bloqueo existe por una razón.** Cierra la salida SMTP para que un script comprometido no
+> convierta el servidor en un relé de spam y acabe con la IP en listas negras. Lo correcto es
+> **autorizar al usuario del dominio**, no desactivar `SMTP_BLOCK` para todos.
+
+### Mientras tanto
+
+`php herramientas/correo.php probar` hace la prueba **desde la consola**, donde el bloqueo no
+aplica. Sirve para separar las dos preguntas que desde el navegador se confunden en una:
+
+| | Lo responde |
+|---|---|
+| ¿Las credenciales sirven? | `herramientas/correo.php` desde SSH |
+| ¿El usuario de PHP puede salir? | La pantalla web |
+
+Si la consola dice que sí y la web sigue diciendo `Connection refused`, **no hay nada que
+arreglar en la aplicación**.
+
+Y si levantar el bloqueo se demora, el **correo local** (apartado 5.3) funciona desde ya.
+
+---
+
+## 5.5 Probar desde la consola
+
+```bash
+# Qué se ve desde este servidor: DNS, puertos, relé local, PHP
+php herramientas/correo.php estado
+
+# Conectar y autenticar con lo que hay en config.php, sin enviar nada
+php herramientas/correo.php probar
+
+# Con credenciales distintas, sin guardarlas
+php herramientas/correo.php probar \
+    --host=smtp.gmail.com --puerto=587 --seguridad=tls \
+    --usuario=hosting@narino.gov.co --clave='xxxx xxxx xxxx xxxx'
+
+# Un envío completo
+php herramientas/correo.php enviar --a=alguien@narino.gov.co
+
+# Si sale bien, guardar esos datos en config.php
+php herramientas/correo.php probar --usuario=… --clave='…' --guardar
+```
+
+Imprime la conversación completa con el servidor. **La contraseña nunca aparece**: sale como
+`[contraseña en base64]`.
+
+> Pasar la contraseña por la línea de órdenes la deja en el historial del intérprete. Conviene
+> `history -c` después, o usar `--guardar` una sola vez y trabajar sin ella.
+
+En Plesk sin SSH: **Sitios web y dominios → Tareas programadas → Ejecutar un script PHP**, ruta
+`cumbreAI/herramientas/correo.php` y los argumentos en su campo. Ojo: una tarea programada de
+Plesk corre como el usuario del dominio, no como root, así que **reproducirá el bloqueo** —que
+para el caso también es información útil.
+
+---
+
 ## 6. Que los mensajes lleguen a la bandeja de entrada
 
 Que el envío funcione no garantiza que el mensaje se lea. Esto se configura **en el DNS del
@@ -463,6 +582,11 @@ También comprueba que la contraseña no aparezca en la transcripción.
 | 2026-08-16 | **Aplicado:** «rechazado» se explica ahora como bloqueo deliberado, distinto de «filtrado» (timeout, del proveedor) y de «sin ruta» (IPv6). Eran tres problemas con tres soluciones distintas y el mismo mensaje en pantalla. |
 | 2026-08-16 | **Aplicado**, de la guía de WP Mail SMTP: códigos `550-5.7.30` y `550-5.7.515` de Microsoft 365, el PTR como factor de entregabilidad, los umbrales de Google/Yahoo (feb-2024) y Microsoft (may-2025) a partir de 5.000 mensajes diarios, y la tasa de spam por debajo del 0,3 %. |
 | 2026-08-16 | **Pendiente:** pedirle al proveedor del servidor que abra la salida a los puertos 587 y 465 hacia smtp.gmail.com. Mientras tanto, correo local. |
+| 2026-08-17 | **Descartado lo anterior.** Desde SSH como root, `nc -zv smtp.gmail.com 587` **conecta**. La máquina sí puede salir: el bloqueo está puesto **por usuario**, y al de PHP-FPM le aplica. No hay nada que pedirle al proveedor. |
+| 2026-08-17 | **Aplicado:** `herramientas/correo.php` —estado, probar y enviar desde la consola, con la transcripción completa—. Separa «¿sirven las credenciales?» de «¿puede salir el usuario de PHP?», que desde el navegador eran la misma pregunta. |
+| 2026-08-17 | **Aplicado:** el diagnóstico web informa del **usuario con el que corre PHP**, que es el dato que hace falta para levantar el bloqueo, y la explicación de «rechazado» remite a `nc` y a `SMTP_ALLOWUSER` de CSF. |
+| 2026-08-17 | **Verificado:** «Usar solo IPv4» funciona de punta a punta —11 comprobaciones—: con la casilla no se ofrece ninguna dirección IPv6, sin ella IPv6 queda detrás de IPv4, y el valor viaja de config.php al cliente. |
+| 2026-08-17 | **Pendiente del área de sistemas:** añadir el usuario del dominio a `SMTP_ALLOWUSER` en `/etc/csf/csf.conf` y `csf -r`. Es lo único que falta para que el SMTP a Google funcione desde la web. |
 
 > Cuando cambie algo —la cuenta, el proveedor, los límites— **actualizar esta tabla**. Una
 > configuración de correo sin historial es la que nadie se atreve a tocar dos años después.

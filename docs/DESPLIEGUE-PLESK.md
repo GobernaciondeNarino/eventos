@@ -464,6 +464,14 @@ Es el comportamiento correcto: sin sesión, el código lleva al acceso y despué
 solo. Si pasa siempre, revisa que las cookies no estén bloqueadas y que el dominio del QR
 impreso coincida con el actual.
 
+**El correo da «Connection refused» pero desde SSH `nc -zv smtp.gmail.com 587` sí conecta.**
+El bloqueo está puesto **por usuario**: root queda exento y el usuario con el que corre PHP-FPM
+no. Casi siempre es `SMTP_BLOCK` de ConfigServer Firewall. Se añade el usuario del dominio a
+`SMTP_ALLOWUSER` en `/etc/csf/csf.conf` y se recarga con `csf -r`. El usuario exacto sale en
+**Administración → Correo → Probar la salida de red**, campo «usuario de PHP». Ver
+`docs/config-mail.md`, apartado 5.4. Para probar las credenciales mientras tanto:
+`php herramientas/correo.php probar` desde SSH, donde el bloqueo no aplica.
+
 **La consola del navegador se queja de `static.cloudflareinsights.com/beacon.min.js`.**
 No es un fallo de la plataforma y no rompe nada. Cloudflare, cuando tiene **Web Analytics**
 encendido, inyecta ese script en el HTML de salida; la política de contenidos de la
