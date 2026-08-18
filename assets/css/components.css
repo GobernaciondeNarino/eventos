@@ -575,12 +575,43 @@
 /* =========================================================================
    Campo de fotografía
    ========================================================================= */
-.foto-campo { display: grid; grid-template-columns: 132px 1fr; gap: var(--sp-5); align-items: start; }
+.foto-campo { display: grid; grid-template-columns: 200px 1fr; gap: var(--sp-5); align-items: start; }
 .foto-campo__vista {
-  width: 132px; height: 132px; border: 1px solid var(--a-28);
+  position: relative; width: 200px; height: 200px; border: 1px solid var(--a-28);
   background: var(--c-sunken); display: grid; place-items: center; overflow: hidden;
+  /* Sin esto, arrastrar la foto en el celular arrastra la página entera. */
+  touch-action: none; user-select: none; -webkit-user-select: none;
 }
 .foto-campo__vista img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+/* El lienzo del editor tapa el visor entero: lo que se ve ahí es exactamente
+   el cuadrado que se va a guardar, ni un píxel más. */
+.foto-campo__lienzo {
+  position: absolute; inset: 0; width: 100%; height: 100%; display: block;
+  cursor: grab;
+}
+.foto-campo__lienzo:active { cursor: grabbing; }
+
+/* Guías: los cuatro tercios y un círculo, para colocar la cara sin adivinar. */
+.foto-campo__marco {
+  position: absolute; inset: 0; pointer-events: none;
+  background:
+    linear-gradient(to right, transparent calc(33.33% - .5px), var(--a-16) calc(33.33% - .5px),
+      var(--a-16) calc(33.33% + .5px), transparent calc(33.33% + .5px),
+      transparent calc(66.66% - .5px), var(--a-16) calc(66.66% - .5px),
+      var(--a-16) calc(66.66% + .5px), transparent calc(66.66% + .5px)),
+    linear-gradient(to bottom, transparent calc(33.33% - .5px), var(--a-16) calc(33.33% - .5px),
+      var(--a-16) calc(33.33% + .5px), transparent calc(33.33% + .5px),
+      transparent calc(66.66% - .5px), var(--a-16) calc(66.66% - .5px),
+      var(--a-16) calc(66.66% + .5px), transparent calc(66.66% + .5px));
+}
+.foto-campo__marco::after {
+  content: ''; position: absolute; inset: 12%; border-radius: 50%;
+  border: 1px dashed var(--a-28);
+}
+
+.foto-campo__mandos { display: flex; flex-direction: column; gap: 10px; width: 200px; align-items: center; }
+.foto-campo__mandos input[type=range] { width: 100%; accent-color: var(--c-accent); }
 .foto-campo__vacia {
   font-family: var(--f-mono); font-size: 9.5px; letter-spacing: .18em;
   text-transform: uppercase; color: var(--c-muted);
@@ -607,6 +638,10 @@ input[type=file]::file-selector-button:hover {
 @media (max-width: 620px) {
   .foto-campo { grid-template-columns: 1fr; justify-items: center; }
   .foto-campo > .stack { width: 100%; }
+  /* En el teléfono el visor ocupa lo que haya: encuadrar una cara en 200 px
+     con el pulgar delante es lo que hace que la gente desista. */
+  .foto-campo__vista { width: min(280px, 78vw); height: min(280px, 78vw); }
+  .foto-campo__mandos { width: min(280px, 78vw); }
 }
 
 /* =========================================================================

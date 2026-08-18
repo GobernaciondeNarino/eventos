@@ -322,9 +322,18 @@ cuidado pide, porque el formulario está abierto.
 4. La imagen se **vuelve a generar entera** con GD: se descarta cualquier carga útil
    escondida en los metadatos EXIF o detrás de la cabecera. La salida es siempre JPEG,
    recortada cuadrada a 480 px.
-5. El nombre lo pone el servidor y lleva 8 bytes al azar: sin eso, saber el id de una persona
+5. **El encuadre lo elige la persona, pero no lo decide.** El editor del navegador manda
+   el rectángulo visible en las medidas con las que él vio la imagen; el servidor lo
+   reescala a las suyas y lo encaja dentro de la foto —nunca mayor que ella, nunca fuera
+   de sus bordes—, y si los números no son números, o la proporción no coincide con la de
+   la imagen real, se cae al recorte del centro en vez de fallar. Lo que viaja es el
+   archivo original más cinco números, no una imagen ya recortada por el cliente: así el
+   servidor sigue siendo quien decide qué se guarda. `pruebas/foto.php` prueba nueve
+   encuadres imposibles —fuera de rango, negativos, con letras, en notación científica— y
+   de todos tiene que salir un JPEG válido de 480 px.
+6. El nombre lo pone el servidor y lleva 8 bytes al azar: sin eso, saber el id de una persona
    bastaría para adivinar la ruta de su foto.
-6. **Nunca se sirve desde el disco.** Pasa por `Medios::foto`, que además comprueba quién
+7. **Nunca se sirve desde el disco.** Pasa por `Medios::foto`, que además comprueba quién
    mira: su dueño, o el equipo organizador. El id es correlativo, así que sin esa
    comprobación bastaría con contar desde uno para descargar la cara de todos los asistentes.
 

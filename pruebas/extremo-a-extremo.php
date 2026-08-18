@@ -1349,10 +1349,17 @@ titulo('Fotografía');
 $html = $maria->get('/preregistro');
 comprobar('«Mis datos» ofrece cargar la fotografía', str_contains($html, 'Fotografía del carnet'));
 comprobar('el formulario admite archivos', str_contains($html, 'multipart/form-data'));
-comprobar('acepta solo imágenes de mapa de bits',
-    str_contains($html, 'accept="image/jpeg,image/png,image/webp"'));
-comprobar('no acepta SVG, que puede llevar guiones dentro',
-    !str_contains($html, 'image/svg'));
+// accept="image/*" y NO la lista de tipos: con la lista, varios navegadores de
+// Android esconden la opción de cámara y solo dejan el explorador de archivos.
+// El tipo real lo comprueba el guion antes de subir y el servidor al recibir.
+comprobar('el campo deja escoger entre cámara y galería',
+    str_contains($html, 'accept="image/*"'));
+comprobar('no fuerza la cámara con capture, que quitaría la galería',
+    !str_contains($html, 'capture='));
+comprobar('trae el editor para centrar y acercar',
+    str_contains($html, 'data-foto-visor') && str_contains($html, 'data-foto-zoom'));
+comprobar('y los campos del encuadre viajan con el formulario',
+    str_contains($html, 'name="foto_lado"') && str_contains($html, 'name="foto_ancho"'));
 
 /* =========================================================================
    Portada: el botón cambia con la fecha del evento
@@ -1360,15 +1367,22 @@ comprobar('no acepta SVG, que puede llevar guiones dentro',
 titulo('Portada');
 
 $anonimo = new Cliente($BASE);
-$pdo->exec("UPDATE {$BD['prefijo']}evento_dia SET fecha = DATE_ADD(CURDATE(), INTERVAL 30 DAY) WHERE numero = 1");
-$pdo->exec("UPDATE {$BD['prefijo']}evento_dia SET fecha = DATE_ADD(CURDATE(), INTERVAL 31 DAY) WHERE numero = 2");
+
+// Las fechas se escriben con el reloj de PHP y no con CURDATE(), que es el del
+// servidor de base de datos. La aplicación fija la zona de su conexión (ver
+// Bd::desplazamientoHorario), pero esta prueba usa la suya propia: entre las
+// 7 de la tarde y la medianoche de Bogotá, CURDATE() ya está en el día
+// siguiente y la comprobación fallaba sin que hubiera nada roto.
+$hoy = date('Y-m-d');
+$pdo->exec("UPDATE {$BD['prefijo']}evento_dia SET fecha = '" . date('Y-m-d', strtotime('+30 day')) . "' WHERE numero = 1");
+$pdo->exec("UPDATE {$BD['prefijo']}evento_dia SET fecha = '" . date('Y-m-d', strtotime('+31 day')) . "' WHERE numero = 2");
 $html = $anonimo->get('/');
 comprobar('antes del evento el botón dice «Preregistrarme»', str_contains($html, '>Preregistrarme<'));
 comprobar('y no dice «REGISTRARME»', !str_contains($html, '>REGISTRARME<'));
 comprobar('«Entra con tu correo» es un botón y no un enlace suelto',
     str_contains($html, 'Entrar y ver mi carnet'));
 
-$pdo->exec("UPDATE {$BD['prefijo']}evento_dia SET fecha = CURDATE() WHERE numero = 1");
+$pdo->exec("UPDATE {$BD['prefijo']}evento_dia SET fecha = '$hoy' WHERE numero = 1");
 $html = $anonimo->get('/');
 comprobar('el día del evento el botón dice «REGISTRARME»', str_contains($html, '>REGISTRARME<'));
 
@@ -1630,6 +1644,24 @@ comprobar('el guion deja la cuenta como la encontró',
    en el navegador, abre el enlace del correo desde otra aplicación —que no
    comparte cookies— y acaba en «identifícate» con el carnet ya emitido.
    ========================================================================= */
+/* =========================================================================
+   Un apunte para la prueba de navegador
+   -------------------------------------------------------------------------
+   pruebas/interacciones.js necesita entrar como asistente y no puede pedir un
+   código por correo. Se le deja aquí el token del QR de acceso de María, en la
+   carpeta de salidas de las pruebas, que no va al repositorio.
+   ========================================================================= */
+$carpetaSalidas = $RAIZ . '/pruebas/capturas';
+if (!is_dir($carpetaSalidas)) {
+    @mkdir($carpetaSalidas, 0755, true);
+}
+$tokenDeMaria = (string) ($pdo->query(
+    "SELECT acceso_token FROM {$BD['prefijo']}persona WHERE correo = 'mzambrano@narino.gov.co'"
+)->fetchColumn() ?: '');
+if ($tokenDeMaria !== '') {
+    file_put_contents($carpetaSalidas . '/token-asistente.txt', $tokenDeMaria);
+}
+
 /* =========================================================================
    Resultado
    ========================================================================= */

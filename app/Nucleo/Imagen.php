@@ -41,9 +41,19 @@ final class Imagen
     /**
      * Recibe $_FILES['foto'] y devuelve [nombreArchivo, tipoMime].
      *
+     * $recorte es lo que eligió la persona en el editor del navegador: el
+     * cuadro visible, en coordenadas de la imagen tal como ella la vio. Puede
+     * faltar —sin JavaScript, o si no tocó nada— y entonces se recorta el
+     * centro, que es lo que se hacía antes.
+     *
+     * Nunca se confía en esos números: se reescalan a las medidas reales de la
+     * imagen en el servidor y se encajan dentro de ella. Vienen de un
+     * formulario, así que pueden llegar negativos, enormes o con letras.
+     *
+     * @param array{x?:mixed,y?:mixed,lado?:mixed,ancho?:mixed,alto?:mixed}|null $recorte
      * @throws \DomainException con un texto que se le puede enseñar a la persona
      */
-    public static function guardarFoto(array $archivo, int $personaId): array
+    public static function guardarFoto(array $archivo, int $personaId, ?array $recorte = null): array
     {
         self::validarSubida($archivo);
 
@@ -68,7 +78,7 @@ final class Imagen
         }
 
         try {
-            $cuadrada = self::recortarCuadrado($original, $archivo['tmp_name'], $tipoReal);
+            $cuadrada = self::recortarCuadrado($original, $archivo['tmp_name'], $tipoReal, $recorte);
         } finally {
             imagedestroy($original);
         }
@@ -136,7 +146,7 @@ final class Imagen
     }
 
     /**
-     * Recorta el centro y reduce a un cuadrado de 480 px.
+     * Recorta un cuadrado y lo reduce a 480 px.
      *
      * Se respeta la orientación EXIF antes de recortar. Sin eso, las fotos
      * hechas con el teléfono en vertical salen acostadas: el sensor graba
@@ -144,21 +154,21 @@ final class Imagen
      * regenerar la imagen, que es justo lo que hacemos aquí a propósito.
      *
      * @param \GdImage $original
+     * @param array{x?:mixed,y?:mixed,lado?:mixed,ancho?:mixed,alto?:mixed}|null $recorte
      * @return \GdImage
      */
-    private static function recortarCuadrado(\GdImage $original, string $ruta, string $tipo): \GdImage
-    {
+    private static function recortarCuadrado(
+        \GdImage $original,
+        string $ruta,
+        string $tipo,
+        ?array $recorte = null
+    ): \GdImage {
         $imagen = self::enderezar($original, $ruta, $tipo);
 
         $ancho = imagesx($imagen);
         $alto = imagesy($imagen);
-        $lado = min($ancho, $alto);
 
-        // El centro horizontal, y algo por encima del centro vertical: en un
-        // retrato la cara está en el tercio superior, y un recorte al centro
-        // exacto la corta por la frente.
-        $x = (int) round(($ancho - $lado) / 2);
-        $y = (int) round(($alto - $lado) * 0.35);
+        [$x, $y, $lado] = self::encuadre($recorte, $ancho, $alto);
 
         $destino = imagecreatetruecolor(self::LADO, self::LADO);
 
@@ -173,6 +183,72 @@ final class Imagen
             imagedestroy($imagen);
         }
         return $destino;
+    }
+
+    /**
+     * Decide qué cuadrado se recorta, a partir de lo que eligió la persona.
+     *
+     * El navegador manda el cuadro en las medidas con las que vio la imagen.
+     * Aquí se reescala a las medidas reales —que pueden no coincidir: basta
+     * con que el navegador y GD interpreten distinto la orientación EXIF— y se
+     * encaja dentro de la imagen. Si algo no cuadra, se cae al recorte de
+     * siempre en vez de fallar: la foto es un adorno del carnet.
+     *
+     * @param array{x?:mixed,y?:mixed,lado?:mixed,ancho?:mixed,alto?:mixed}|null $recorte
+     * @return array{0:int,1:int,2:int} [x, y, lado]
+     */
+    private static function encuadre(?array $recorte, int $ancho, int $alto): array
+    {
+        $maximo = min($ancho, $alto);
+
+        // Sin recorte: el centro horizontal, y algo por encima del centro
+        // vertical. En un retrato la cara está en el tercio superior, y un
+        // recorte al centro exacto la corta por la frente.
+        $porOmision = [
+            (int) round(($ancho - $maximo) / 2),
+            (int) round(($alto - $maximo) * 0.35),
+            $maximo,
+        ];
+
+        if ($recorte === null) {
+            return $porOmision;
+        }
+
+        $numero = static fn(string $clave): float => is_numeric($recorte[$clave] ?? null)
+            ? (float) $recorte[$clave]
+            : -1.0;
+
+        $anchoVisto = $numero('ancho');
+        $altoVisto = $numero('alto');
+        $lado = $numero('lado');
+        $x = $numero('x');
+        $y = $numero('y');
+
+        if ($anchoVisto < 1 || $altoVisto < 1 || $lado < 1 || $x < 0 || $y < 0) {
+            return $porOmision;
+        }
+
+        // Si el navegador vio la imagen girada respecto a como la ve GD, sus
+        // coordenadas no significan nada aquí: mejor el recorte de siempre que
+        // uno que corta por donde no es.
+        $mismaForma = abs(($anchoVisto / $altoVisto) - ($ancho / $alto)) < 0.02;
+        if (!$mismaForma) {
+            return $porOmision;
+        }
+
+        $escala = $ancho / $anchoVisto;
+        $lado = (int) round($lado * $escala);
+        $x = (int) round($x * $escala);
+        $y = (int) round($y * $escala);
+
+        // Y ahora se encaja: nunca más grande que la imagen, nunca fuera de
+        // ella. Estos tres pasos son los que hacen que un envío manipulado no
+        // pueda pedir un recorte imposible.
+        $lado = max(16, min($lado, $maximo));
+        $x = max(0, min($x, $ancho - $lado));
+        $y = max(0, min($y, $alto - $lado));
+
+        return [$x, $y, $lado];
     }
 
     /**

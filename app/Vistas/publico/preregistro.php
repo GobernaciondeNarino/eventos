@@ -19,7 +19,7 @@ if (($valores['correo'] ?? '') === '' && isset($_GET['correo'])) {
 $v = static fn(string $clave, string $porDefecto = ''): string => (string) ($valores[$clave] ?? $porDefecto);
 $err = static fn(string $clave): string => (string) ($errores[$clave] ?? '');
 $hayPropuesta = $v('tema') !== '' || !empty($valores['expositor']);
-guiones('preregistro.js');
+guiones('foto.js', 'preregistro.js');
 ?>
 <!-- enctype: sin esto el navegador manda solo los nombres de los archivos y
      $_FILES llega vacío, así que la foto se perdía sin ningún error visible. -->
@@ -115,41 +115,84 @@ guiones('preregistro.js');
   </section>
 
   <!-- ================= Fotografía del carnet =================
-       capture="user" en el input: en el celular abre directamente la cámara
-       frontal en vez de obligar a buscar la foto en la galería. En el
-       computador se comporta como un selector de archivos normal. -->
+       El campo va SIN el atributo capture a propósito. Con capture, el celular
+       abre la cámara y ya: no hay forma de elegir una foto que ya se tiene. Sin
+       él, tanto Android como iPhone muestran su propio menú con «Cámara»,
+       «Fotos» y «Archivos», que es justamente poder escoger.
+
+       El recorte lo ajusta la persona en el editor de abajo, que solo aparece
+       si hay JavaScript. Si no lo hay, el campo funciona igual y el servidor
+       recorta el centro. -->
   <section class="card">
     <div class="card__head">
       <span>Fotografía del carnet (opcional)</span>
       <?php if ($foto !== ''): ?><span class="tag tag--ok">Ya tienes una</span><?php endif; ?>
     </div>
-    <div class="card__body foto-campo">
-      <div class="foto-campo__vista">
-        <?php if ($foto !== ''): ?>
-          <img src="<?= e($foto) ?>" alt="Tu fotografía actual" id="foto-vista">
-        <?php else: ?>
-          <img src="" alt="" id="foto-vista" hidden>
-          <span class="foto-campo__vacia" id="foto-vacia" aria-hidden="true">Sin foto</span>
-        <?php endif; ?>
+    <div class="card__body foto-campo" data-foto>
+
+      <div class="stack stack--3" style="align-items:center">
+        <!-- El visor. Con una foto cargada se convierte en el editor: se
+             arrastra para centrar y se acerca con la barra o con dos dedos. -->
+        <div class="foto-campo__vista" data-foto-visor>
+          <?php if ($foto !== ''): ?>
+            <img src="<?= e($foto) ?>" alt="Tu fotografía actual" data-foto-actual>
+          <?php else: ?>
+            <span class="foto-campo__vacia" data-foto-vacia aria-hidden="true">Sin foto</span>
+          <?php endif; ?>
+          <canvas class="foto-campo__lienzo" data-foto-lienzo hidden></canvas>
+          <span class="foto-campo__marco" data-foto-marco hidden aria-hidden="true"></span>
+        </div>
+
+        <div class="foto-campo__mandos hidden" data-foto-mandos>
+          <div class="row" style="flex-wrap:nowrap;gap:10px;width:100%">
+            <span class="muted" aria-hidden="true">−</span>
+            <label class="sr-only" for="foto-zoom">Acercar o alejar la foto</label>
+            <input type="range" id="foto-zoom" data-foto-zoom
+                   min="100" max="400" value="100" step="1" style="flex:1">
+            <span class="muted" aria-hidden="true">+</span>
+          </div>
+          <button class="btn btn--sm" type="button" data-foto-centrar>Volver a centrar</button>
+        </div>
       </div>
 
       <div class="stack stack--3">
         <p class="help" style="margin:0">
-          Aparecerá en tu carnet digital y en el impreso. Se recorta cuadrada, así que sirve
-          una foto de frente y con la cara centrada. Máximo 6 MB; JPG, PNG o WEBP.
+          Aparecerá en tu carnet digital y en el impreso. Puedes <strong>tomarla en el
+          momento con la cámara</strong> o <strong>elegir una de tu galería</strong>; después
+          arrástrala para centrar la cara y usa la barra para acercarla.
         </p>
 
-        <div class="field" style="margin:0">
-          <label class="label" for="foto">Elegir o tomar la foto</label>
-          <input class="input" type="file" id="foto" name="foto"
-                 accept="image/jpeg,image/png,image/webp" capture="user"
-                 data-vista-previa="foto-vista">
+        <div class="row">
+          <button class="btn btn--sm btn--primary" type="button" data-foto-elegir>
+            Tomar foto o elegir de la galería
+          </button>
+          <button class="btn btn--sm hidden" type="button" data-foto-descartar>
+            Descartar
+          </button>
         </div>
 
+        <!-- El campo real. Va oculto para el ojo pero sigue siendo un campo de
+             archivo normal: sin JavaScript se muestra y funciona solo. -->
+        <div class="field" data-foto-campo style="margin:0">
+          <label class="label" for="foto">Foto (JPG, PNG o WEBP, máximo 6 MB)</label>
+          <input class="input" type="file" id="foto" name="foto" accept="image/*">
+        </div>
+
+        <p class="help hidden" data-foto-error style="margin:0;color:var(--c-danger)"></p>
+
+        <!-- El encuadre elegido, en las medidas con las que el navegador vio la
+             imagen. El servidor lo reescala a las suyas y lo encaja dentro de
+             la foto: nunca se confía en estos números. -->
+        <input type="hidden" name="foto_x" data-foto-x>
+        <input type="hidden" name="foto_y" data-foto-y>
+        <input type="hidden" name="foto_lado" data-foto-lado>
+        <input type="hidden" name="foto_ancho" data-foto-ancho>
+        <input type="hidden" name="foto_alto" data-foto-alto>
+
         <?php if ($foto !== ''): ?>
-          <label class="row" style="gap:9px;cursor:pointer">
+          <label class="row" style="gap:10px;cursor:pointer;flex-wrap:nowrap;align-items:flex-start">
             <input type="checkbox" name="quitar_foto" value="1"
-                   style="width:18px;height:18px;accent-color:var(--c-accent)">
+                   style="width:18px;height:18px;margin-top:2px;flex:none;accent-color:var(--c-accent)">
             <span class="help">Quitar la foto actual y dejar el carnet con mis iniciales</span>
           </label>
         <?php endif; ?>

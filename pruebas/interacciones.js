@@ -23,6 +23,14 @@ const LANZAR = EJECUTABLE ? { executablePath: EJECUTABLE } : {};
 const BASE = (process.argv[2] || 'http://127.0.0.1:8900/cumbreAI').replace(/\/$/, '');
 const ADMIN = { correo: 'aerazo@narino.gov.co', clave: 'una frase larga y facil de recordar' };
 
+/* Para entrar como asistente hace falta su QR de acceso: no se puede pedir un
+   código por correo desde aquí. extremo-a-extremo.php lo deja escrito al
+   terminar, en la carpeta de salidas de las pruebas. */
+const RUTA_TOKEN = 'pruebas/capturas/token-asistente.txt';
+const TOKEN = (() => {
+  try { return fs.readFileSync(RUTA_TOKEN, 'utf8').trim(); } catch (e) { return ''; }
+})();
+
 let ok = 0;
 const fallos = [];
 
@@ -85,6 +93,123 @@ function titulo(t) {
 
   comprobar('sin errores de consola en la portada', erroresPortada.length === 0,
     erroresPortada.slice(0, 2).join(' | '));
+
+  /* =====================================================================
+     El editor de la fotografía
+     ---------------------------------------------------------------------
+     La prueba de verdad no es que el editor se vea: es que el recorte que
+     elige la persona sea el que acaba en el carnet. Se sube una imagen con
+     una esquina roja inconfundible, se encuadra esa esquina, se guarda, y se
+     lee el color del centro de la foto que sirve el servidor.
+     ===================================================================== */
+  titulo('Editor de la fotografía');
+
+  if (!TOKEN) {
+    console.log('  · sin ' + RUTA_TOKEN + ': ejecuta antes php pruebas/extremo-a-extremo.php');
+    fallos.push('no se pudo entrar como asistente');
+  } else {
+    const p2 = await movil.newPage();
+    const erroresFoto = [];
+    p2.on('console', m => { if (m.type() === 'error') erroresFoto.push(m.text()); });
+
+    await p2.goto(BASE + '/entrar/qr/' + TOKEN, { waitUntil: 'networkidle' });
+    await p2.goto(BASE + '/preregistro', { waitUntil: 'networkidle' });
+
+    comprobar('el campo de archivo queda oculto tras el botón',
+      await p2.locator('[data-foto-campo]').isHidden());
+    comprobar('el editor todavía no aparece',
+      await p2.locator('[data-foto-mandos]').isHidden());
+
+    // Imagen de prueba: 900×600, esquina superior izquierda roja de 150 px.
+    const ruta = 'pruebas/capturas/foto-de-prueba.png';
+    fs.writeFileSync(ruta, Buffer.from(await p2.evaluate(() => {
+      const l = document.createElement('canvas');
+      l.width = 900; l.height = 600;
+      const c = l.getContext('2d');
+      c.fillStyle = '#f0f0f0'; c.fillRect(0, 0, 900, 600);
+      c.fillStyle = '#dc1e1e'; c.fillRect(0, 0, 150, 150);
+      return l.toDataURL('image/png').split(',')[1];
+    }), 'base64'));
+
+    await p2.setInputFiles('#foto', ruta);
+    await p2.waitForSelector('[data-foto-lienzo]:not([hidden])', { timeout: 5000 });
+
+    comprobar('al elegir una foto aparece el editor',
+      await p2.locator('[data-foto-mandos]').isVisible());
+    comprobar('y el botón de descartar',
+      await p2.locator('[data-foto-descartar]').isVisible());
+
+    const inicial = await p2.evaluate(() => ({
+      x: document.querySelector('[data-foto-x]').value,
+      y: document.querySelector('[data-foto-y]').value,
+      lado: document.querySelector('[data-foto-lado]').value,
+      ancho: document.querySelector('[data-foto-ancho]').value,
+      alto: document.querySelector('[data-foto-alto]').value,
+    }));
+    comprobar('el encuadre se publica en el formulario',
+      inicial.lado === '600' && inicial.ancho === '900' && inicial.alto === '600',
+      JSON.stringify(inicial));
+
+    // Acercar: el lado del cuadro tiene que encogerse.
+    await p2.locator('[data-foto-zoom]').fill('300');
+    await p2.locator('[data-foto-zoom]').dispatchEvent('input');
+    const acercado = await p2.evaluate(() =>
+      Number(document.querySelector('[data-foto-lado]').value));
+    comprobar('la barra de zoom encoge el cuadro', acercado === 200, String(acercado));
+
+    // Arrastrar hasta la esquina superior izquierda. Se hace en varios gestos
+    // cortos y no en uno largo: el ratón no puede salirse de la ventana, y en
+    // un teléfono de 390 px un solo arrastre no alcanza a recorrer la foto.
+    const antesDeArrastrar = await p2.evaluate(() =>
+      Number(document.querySelector('[data-foto-x]').value));
+
+    const caja = await p2.locator('[data-foto-visor]').boundingBox();
+    const desde = { x: caja.x + 20, y: caja.y + 20 };
+    for (let gesto = 0; gesto < 5; gesto++) {
+      await p2.mouse.move(desde.x, desde.y);
+      await p2.mouse.down();
+      for (let i = 1; i <= 6; i++) {
+        await p2.mouse.move(desde.x + i * 30, desde.y + i * 30);
+      }
+      await p2.mouse.up();
+    }
+
+    const arrastrado = await p2.evaluate(() => ({
+      x: Number(document.querySelector('[data-foto-x]').value),
+      y: Number(document.querySelector('[data-foto-y]').value),
+    }));
+    comprobar('arrastrar lleva el encuadre a la esquina superior izquierda',
+      arrastrado.x === 0 && arrastrado.y === 0,
+      'venía de x=' + antesDeArrastrar + ' y quedó en ' + JSON.stringify(arrastrado));
+
+    // Guardar y comprobar qué quedó en el carnet.
+    await p2.locator('button[type=submit]', { hasText: 'Guardar cambios' }).click();
+    await p2.waitForLoadState('networkidle');
+    comprobar('se guarda y vuelve al carnet',
+      (await p2.locator('h1').first().innerText()).includes('carnet'),
+      p2.url());
+
+    const color = await p2.evaluate(async () => {
+      const img = document.querySelector('.carnet__photo img');
+      if (!img) return null;
+      await img.decode();
+      const l = document.createElement('canvas');
+      l.width = l.height = 8;
+      const c = l.getContext('2d');
+      c.drawImage(img, 0, 0, 8, 8);
+      const d = c.getImageData(4, 4, 1, 1).data;
+      return [d[0], d[1], d[2]];
+    });
+    comprobar('la foto quedó en el carnet', color !== null);
+    comprobar('y el recorte es el que eligió la persona, no el centro',
+      color && color[0] > 150 && color[1] < 110 && color[2] < 110,
+      color ? color.join(',') : 'sin imagen');
+
+    comprobar('sin errores de consola en el editor', erroresFoto.length === 0,
+      erroresFoto.slice(0, 2).join(' | '));
+
+    fs.unlinkSync(ruta);
+  }
 
   /* =====================================================================
      Panel: pestañas y ficha

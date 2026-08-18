@@ -202,8 +202,23 @@ final class Publico
             return null;
         }
 
+        // El encuadre que eligió la persona en el editor del navegador. Puede
+        // no venir —sin JavaScript no hay editor— y entonces se recorta el
+        // centro. Los valores no se validan aquí: lo hace Imagen::encuadre(),
+        // que es la única que conoce las medidas reales de la imagen.
+        $recorte = null;
+        if ($peticion->campo('foto_lado') !== '') {
+            $recorte = [
+                'x'      => $peticion->campo('foto_x'),
+                'y'      => $peticion->campo('foto_y'),
+                'lado'   => $peticion->campo('foto_lado'),
+                'ancho'  => $peticion->campo('foto_ancho'),
+                'alto'   => $peticion->campo('foto_alto'),
+            ];
+        }
+
         try {
-            [$nombre, $tipo] = Imagen::guardarFoto($archivo, $personaId);
+            [$nombre, $tipo] = Imagen::guardarFoto($archivo, $personaId, $recorte);
             Persona::ponerFoto($personaId, $nombre, $tipo);
             return null;
         } catch (\DomainException $e) {
